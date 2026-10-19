@@ -308,24 +308,45 @@ const varLabel = (k) => { const v = varOf(k); const u = v.u(); return u ? `${v.l
 
 /* ---------- autotracking por correlación de plantilla ---------- */
 
+// Lado mínimo de la plantilla en el nivel más reducido de la pirámide.
+const PYR_MIN = 10;
+
 function grayRegion(x0, y0, w, h) {
+  gctx.drawImage(video, x0, y0, w, h, x0, y0, w, h);
   const img = gctx.getImageData(x0, y0, w, h).data;
   const g = new Float32Array(w * h);
   for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = 0.299 * img[j] + 0.587 * img[j + 1] + 0.114 * img[j + 2];
   return g;
 }
 
-function grabFrame() { gctx.drawImage(video, 0, 0, S.W, S.H); }
+// Imagen a la mitad de tamaño (media de bloques 2×2).
+function halve(img) {
+  const w = img.w >> 1, h = img.h >> 1, W = img.w, s = img.g;
+  const g = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = 2 * y * W + 2 * x;
+      g[y * w + x] = 0.25 * (s[i] + s[i + 1] + s[i + W] + s[i + W + 1]);
+    }
+  }
+  return { g, w, h };
+}
 
-function makeTemplate(raw, size) {
-  const n = raw.length;
+function zeroMean(img) {
+  const n = img.g.length;
   let m = 0;
-  for (let i = 0; i < n; i++) m += raw[i];
+  for (let i = 0; i < n; i++) m += img.g[i];
   m /= n;
   const z = new Float32Array(n);
   let ss = 0;
-  for (let i = 0; i < n; i++) { z[i] = raw[i] - m; ss += z[i] * z[i]; }
-  return { raw, z, norm: Math.sqrt(ss), size, half: (size - 1) / 2 };
+  for (let i = 0; i < n; i++) { z[i] = img.g[i] - m; ss += z[i] * z[i]; }
+  return { ...img, z, norm: Math.sqrt(ss) };
+}
+
+function makeTemplate(raw, size) {
+  const levels = [zeroMean({ g: raw, w: size, h: size })];
+  while (levels[levels.length - 1].w / 2 >= PYR_MIN) levels.push(zeroMean(halve(levels[levels.length - 1])));
+  return { raw, z: levels[0].z, norm: levels[0].norm, size, half: (size - 1) / 2, levels };
 }
 
 function extractTemplate(p, size) {
@@ -335,7 +356,41 @@ function extractTemplate(p, size) {
   return makeTemplate(grayRegion(cx - h, cy - h, size, size), size);
 }
 
-// Correlación cruzada normalizada (NCC) en una ventana alrededor de la predicción.
+// Imágenes integrales de los valores y de sus cuadrados: suma de cualquier ventana en O(1).
+function integral(img) {
+  const { g, w, h } = img, W = w + 1;
+  const s = new Float64Array(W * (h + 1)), s2 = new Float64Array(W * (h + 1));
+  for (let y = 0; y < h; y++) {
+    let rs = 0, rs2 = 0;
+    for (let x = 0; x < w; x++) {
+      const v = g[y * w + x];
+      rs += v; rs2 += v * v;
+      s[(y + 1) * W + x + 1] = s[y * W + x + 1] + rs;
+      s2[(y + 1) * W + x + 1] = s2[y * W + x + 1] + rs2;
+    }
+  }
+  return { s, s2, W };
+}
+
+// Correlación cruzada normalizada de la plantilla t con la imagen en (u, v), esquina superior izquierda.
+function nccAt(img, ii, t, u, v) {
+  const W = ii.W, tw = t.w, th = t.h;
+  const a = v * W + u, b = a + tw, c = (v + th) * W + u, d = c + tw;
+  const s = ii.s[d] - ii.s[b] - ii.s[c] + ii.s[a];
+  const s2 = ii.s2[d] - ii.s2[b] - ii.s2[c] + ii.s2[a];
+  const vr = s2 - (s * s) / (tw * th);
+  if (vr <= 1e-6 || t.norm <= 0) return 0;
+  const g = img.g, w = img.w, z = t.z;
+  let cr = 0, k = 0;
+  for (let j = 0; j < th; j++) {
+    let idx = (v + j) * w + u;
+    for (let i = 0; i < tw; i++) cr += g[idx++] * z[k++];
+  }
+  return cr / (Math.sqrt(vr) * t.norm);
+}
+
+// Búsqueda piramidal: barrido completo con imagen y plantilla reducidas, y los mejores
+// candidatos se refinan nivel a nivel hasta la resolución original.
 function matchTemplate(tpl, center, R) {
   const { size, half: h } = tpl;
   const cx = Math.round(center.x), cy = Math.round(center.y);
@@ -343,39 +398,68 @@ function matchTemplate(tpl, center, R) {
   const x1 = Math.min(S.W, cx + R + h + 1), y1 = Math.min(S.H, cy + R + h + 1);
   const rw = x1 - x0, rh = y1 - y0;
   if (rw < size || rh < size) return null;
-  const g = grayRegion(x0, y0, rw, rh);
-  const nu = rw - size + 1, nv = rh - size + 1;
+  const imgs = [{ g: grayRegion(x0, y0, rw, rh), w: rw, h: rh }];
+  let L = 0;
+  while (L + 1 < tpl.levels.length) {
+    const next = halve(imgs[L]), t = tpl.levels[L + 1];
+    if (next.w < t.w || next.h < t.h) break;
+    imgs.push(next);
+    L++;
+  }
+  const iis = imgs.map(integral);
+
+  const top = imgs[L], tt = tpl.levels[L];
+  const nu = top.w - tt.w + 1, nv = top.h - tt.h + 1;
   const sc = new Float32Array(nu * nv);
-  const N = size * size;
-  let best = -2, bu = 0, bv = 0;
+  for (let v = 0; v < nv; v++) for (let u = 0; u < nu; u++) sc[v * nu + u] = nccAt(top, iis[L], tt, u, v);
+  const cand = [];
   for (let v = 0; v < nv; v++) {
     for (let u = 0; u < nu; u++) {
-      let s = 0, s2 = 0, c = 0, k = 0;
-      for (let j = 0; j < size; j++) {
-        let idx = (v + j) * rw + u;
-        for (let i = 0; i < size; i++, idx++, k++) {
-          const val = g[idx];
-          s += val; s2 += val * val; c += val * tpl.z[k];
+      const s = sc[v * nu + u];
+      let isMax = true;
+      for (let dv = -1; dv <= 1 && isMax; dv++) {
+        for (let du = -1; du <= 1; du++) {
+          const uu = u + du, vv = v + dv;
+          if ((du || dv) && uu >= 0 && vv >= 0 && uu < nu && vv < nv && sc[vv * nu + uu] > s) { isMax = false; break; }
         }
       }
-      const vr = s2 - (s * s) / N;
-      const ncc = vr > 1e-6 && tpl.norm > 0 ? c / (Math.sqrt(vr) * tpl.norm) : 0;
-      sc[v * nu + u] = ncc;
-      if (ncc > best) { best = ncc; bu = u; bv = v; }
+      if (isMax) cand.push({ u, v, s });
     }
   }
+  cand.sort((a, b) => b.s - a.s);
+
+  let best = null;
+  for (const c0 of cand.slice(0, 3)) {
+    let { u, v, s } = c0;
+    for (let l = L - 1; l >= 0; l--) {
+      const im = imgs[l], t = tpl.levels[l];
+      const mu = im.w - t.w, mv = im.h - t.h;
+      let bs = -2, bu = 0, bv = 0;
+      for (let dv = -2; dv <= 2; dv++) {
+        for (let du = -2; du <= 2; du++) {
+          const uu = clamp(2 * u + du, 0, mu), vv = clamp(2 * v + dv, 0, mv);
+          const sv = nccAt(im, iis[l], t, uu, vv);
+          if (sv > bs) { bs = sv; bu = uu; bv = vv; }
+        }
+      }
+      u = bu; v = bv; s = bs;
+    }
+    if (!best || s > best.s) best = { u, v, s };
+  }
+
   // Ajuste parabólico para precisión de subpíxel.
-  const at = (u, v) => sc[v * nu + u];
+  const t0 = tpl.levels[0], f = (u, v) => nccAt(imgs[0], iis[0], t0, u, v);
+  const { u, v, s: m } = best;
   let du = 0, dv = 0;
-  if (bu > 0 && bu < nu - 1) {
-    const l = at(bu - 1, bv), m = at(bu, bv), r = at(bu + 1, bv), den = l - 2 * m + r;
+  if (u > 0 && u < rw - size) {
+    const l = f(u - 1, v), r = f(u + 1, v), den = l - 2 * m + r;
     if (den < 0) du = clamp(0.5 * (l - r) / den, -0.5, 0.5);
   }
-  if (bv > 0 && bv < nv - 1) {
-    const l = at(bu, bv - 1), m = at(bu, bv), r = at(bu, bv + 1), den = l - 2 * m + r;
+  if (v > 0 && v < rh - size) {
+    const l = f(u, v - 1), r = f(u, v + 1), den = l - 2 * m + r;
     if (den < 0) dv = clamp(0.5 * (l - r) / den, -0.5, 0.5);
   }
-  return { x: x0 + bu + h + du, y: y0 + bv + h + dv, score: best };
+  return { x: x0 + u + h + du, y: y0 + v + h + dv, score: m };
 }
 
 async function autotrack() {
@@ -392,7 +476,6 @@ async function autotrack() {
   const evolve = $('tplEvolve').checked;
 
   await seekFrame(start);
-  grabFrame();
   let tpl = extractTemplate(tr.points[start], size);
   if (!tpl) { toast('El punto está demasiado cerca del borde para esa plantilla.'); return; }
   if (tpl.norm < 1e-3 * size) { toast('La plantilla es uniforme (sin contraste): elige un punto con más detalle.'); return; }
@@ -407,12 +490,16 @@ async function autotrack() {
     if (!S.auto) { stopMsg = 'Autotrack detenido.'; break; }
     const pred = prev2 ? { x: 2 * prev.x - prev2.x, y: 2 * prev.y - prev2.y } : prev;
     await seekFrame(n);
-    grabFrame();
     let m = matchTemplate(tpl, pred, R);
-    // Si la predicción falla (choque, cambio brusco), se reintenta centrado en la última posición.
+    // Si la predicción falla (choque, bote), se reintenta centrado en la última posición.
     if ((!m || m.score < minScore) && prev2) {
       const m2 = matchTemplate(tpl, prev, R);
       if (m2 && (!m || m2.score > m.score)) m = m2;
+    }
+    // Último intento antes de parar: zona tres veces mayor (un bote invierte la velocidad).
+    if (!m || m.score < minScore) {
+      const m3 = matchTemplate(tpl, prev, 3 * R);
+      if (m3 && (!m || m3.score > m.score)) m = m3;
     }
     if (!m || m.score < minScore) {
       stopMsg = `Autotrack parado en el fotograma ${n}: coincidencia ${m ? m.score.toFixed(2) : '–'} < ${minScore}. Márcalo a mano y sigue.`;
@@ -575,7 +662,7 @@ function drawTrack(ctx, tr) {
     ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, 7); ctx.stroke();
     outlinedLine(ctx, [{ x: p.x - 3, y: p.y }, { x: p.x + 3, y: p.y }], tr.color, 1);
     outlinedLine(ctx, [{ x: p.x, y: p.y - 3 }, { x: p.x, y: p.y + 3 }], tr.color, 1);
-    if (isSel && S.show.search && !S.playing) drawSearchZone(ctx, tr, cur);
+    if (isSel) drawSearchZone(ctx);
     label(ctx, tr.name, p.x + 11, p.y - 9, tr.color);
   }
 }
@@ -588,25 +675,46 @@ function tplParams() {
 
 // Plantilla (sólida) sobre el punto y zona de búsqueda (discontinua) centrada en la
 // posición prevista para el siguiente paso, igual que la usa el autotracking.
-function drawSearchZone(ctx, tr, cur) {
+// Geometría en pantalla de la plantilla y la zona de búsqueda del objeto seleccionado.
+function searchGeom() {
+  const tr = selTrack();
+  const cur = tr && tr.visible && tr.points[S.frame];
+  if (!cur || !S.show.search || S.playing) return null;
   const { size, R } = tplParams();
   const s = S.view.s;
-  const before = tr.points[S.frame - S.range.step];
+  const before = tr.points[S.frame - S.range.step] || null;
   const pred = before ? { x: 2 * cur.x - before.x, y: 2 * cur.y - before.y } : cur;
   const p = toScreen({ x: Math.round(cur.x), y: Math.round(cur.y) });
   const c = toScreen({ x: Math.round(pred.x), y: Math.round(pred.y) });
-  const ht = (size / 2) * s, hs = (R + size / 2) * s;
+  return { tr, cur, pred, before, p, c, ht: (size / 2) * s, hs: (R + size / 2) * s };
+}
 
-  const box = (x, y, h, dash, w) => {
+const CORNERS = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+
+function drawSearchZone(ctx) {
+  const G = searchGeom();
+  if (!G) return;
+  const { tr, before, p, c, ht, hs } = G;
+
+  const box = (x, y, h, dash, w, hot) => {
     ctx.setLineDash(dash);
     ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = w + 2;
     ctx.strokeRect(x - h, y - h, 2 * h, 2 * h);
     ctx.strokeStyle = tr.color; ctx.lineWidth = w;
     ctx.strokeRect(x - h, y - h, 2 * h, 2 * h);
     ctx.setLineDash([]);
+    // Asas en las esquinas para cambiar el tamaño arrastrando.
+    for (const [sx, sy] of CORNERS) {
+      const hx = x + sx * h, hy = y + sy * h;
+      ctx.fillStyle = hot ? '#fff' : tr.color;
+      ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
+      ctx.fillRect(hx - 3.5, hy - 3.5, 7, 7);
+      ctx.strokeRect(hx - 3.5, hy - 3.5, 7, 7);
+    }
   };
-  box(c.x, c.y, hs, [6, 4], 1.2);
-  box(p.x, p.y, ht, [], 1.5);
+  const hk = hover && hover.kind;
+  box(c.x, c.y, hs, [6, 4], 1.2, hk === 'searchCorner' || (drag && drag.kind === 'searchCorner'));
+  box(p.x, p.y, ht, [], 1.5, hk === 'tplCorner' || (drag && drag.kind === 'tplCorner'));
   if (before && dist(p, c) > 3) {
     ctx.setLineDash([2, 3]);
     outlinedLine(ctx, [p, c], tr.color, 1);
@@ -645,10 +753,27 @@ function drawTplPreview() {
 
 function hitTest(sp) {
   const R = 9;
+  // Punto y asas de las esquinas pueden solaparse con plantillas pequeñas: gana el más cercano.
+  let best = null, bd = Infinity;
   for (const tr of [selTrack(), ...S.tracks].filter(Boolean)) {
     const p = tr.visible && tr.points[S.frame];
-    if (p && dist(toScreen(p), sp) < R) return { kind: 'pt', tr };
+    const d = p ? dist(toScreen(p), sp) : Infinity;
+    if (d < R && d < bd) { best = { kind: 'pt', tr }; bd = d; }
   }
+  const G = searchGeom();
+  if (G) {
+    for (const [kind, o, h] of [['tplCorner', G.p, G.ht], ['searchCorner', G.c, G.hs]]) {
+      for (const [sx, sy] of CORNERS) {
+        const q = { x: o.x + sx * h, y: o.y + sy * h };
+        const d = dist(q, sp);
+        if (Math.abs(sp.x - q.x) < 7 && Math.abs(sp.y - q.y) < 7 && d < bd) {
+          best = { kind, cursor: sx * sy > 0 ? 'nwse-resize' : 'nesw-resize' };
+          bd = d;
+        }
+      }
+    }
+  }
+  if (best) return best;
   if (S.show.calib) {
     if (dist(toScreen(S.calib.a), sp) < R) return { kind: 'ca' };
     if (dist(toScreen(S.calib.b), sp) < R) return { kind: 'cb' };
@@ -707,7 +832,7 @@ view.addEventListener('pointermove', (e) => {
     const h = S.auto ? null : hitTest(sp);
     const changed = (h && h.kind) !== (hover && hover.kind) || (h && hover && h.tr !== hover.tr);
     hover = h;
-    view.style.cursor = h ? (h.kind === 'pt' || h.kind === 'origin' ? 'move' : 'grab') : (S.tool === 'mark' || e.shiftKey ? 'crosshair' : 'default');
+    view.style.cursor = h ? (h.cursor || (h.kind === 'pt' || h.kind === 'origin' ? 'move' : 'grab')) : (S.tool === 'mark' || e.shiftKey ? 'crosshair' : 'default');
     if (changed) render();
     return;
   }
@@ -718,7 +843,20 @@ view.addEventListener('pointermove', (e) => {
   } else {
     drag.moved = true;
     const p = { x: clamp(ip.x, 0, S.W), y: clamp(ip.y, 0, S.H) };
-    if (drag.kind === 'pt') setPoint(drag.tr, S.frame, p);
+    if (drag.kind === 'tplCorner' || drag.kind === 'searchCorner') {
+      // Redimensionar como una imagen: el recuadro crece o mengua alrededor de su centro.
+      const G = searchGeom();
+      if (G) {
+        const o = drag.kind === 'tplCorner' ? G.cur : G.pred;
+        const d = Math.max(Math.abs(ip.x - o.x), Math.abs(ip.y - o.y));
+        if (drag.kind === 'tplCorner') {
+          $('tplSize').value = clamp(2 * Math.round(d) + 1, 5, 801);
+        } else {
+          $('searchR').value = clamp(Math.round(d - tplParams().size / 2), 3, 1500);
+        }
+        view.style.cursor = drag.cursor;
+      }
+    } else if (drag.kind === 'pt') setPoint(drag.tr, S.frame, p);
     else if (drag.kind === 'ca') S.calib.a = p;
     else if (drag.kind === 'cb') S.calib.b = p;
     else if (drag.kind === 'origin') { S.axes.ox = p.x; S.axes.oy = p.y; }
