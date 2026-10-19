@@ -14,7 +14,7 @@ Abre `index.html` (o la versión publicada) en Chrome, Edge o Firefox.
 4. **Coloca los ejes.** Arrastra el origen (amarillo) y gíralos con el asa (con `Mayús`, de 15° en 15°).
 5. **Sigue el objeto.**
    - A mano: herramienta *Marcar* (`M`) y clic sobre el objeto; avanza solo al siguiente paso. `Mayús`+clic marca con cualquier herramienta.
-   - Autotracking: márcalo en un fotograma y pulsa *Autotrack desde aquí*. Busca en cada fotograma el recuadro de la plantilla que más se parece al de partida (correlación cruzada normalizada, con precisión de subpíxel). Si la coincidencia baja del umbral, se para: corrige a mano y vuelve a lanzarlo. Sobre el vídeo se ve la plantilla (recuadro sólido) y la zona de búsqueda del siguiente paso (discontinua, centrada donde se prevé el objeto según su velocidad); los dos se agrandan o encogen arrastrando sus esquinas. En el panel se ve la plantilla ampliada.
+   - Autotracking: con la herramienta *Auto* (`A`), haz clic sobre el objeto y se sigue solo desde ese fotograma. También puedes marcarlo y pulsar *Autotrack desde aquí*, que arranca en el último punto marcado. Busca en cada fotograma el recuadro de la plantilla que más se parece al de partida (correlación cruzada normalizada, con precisión de subpíxel). Si la coincidencia baja del umbral, se para: corrige a mano y vuelve a lanzarlo. Sobre el vídeo se ve la plantilla (recuadro sólido) y la zona de búsqueda del siguiente paso (discontinua, centrada donde se prevé el objeto según su velocidad); los dos se agrandan o encogen arrastrando sus esquinas. En el panel se ve la plantilla ampliada.
    - La búsqueda es piramidal (primero con la imagen reducida y luego refinando hasta la resolución original), así que plantillas y radios grandes no la frenan. Si la coincidencia baja del umbral, antes de pararse busca en una zona tres veces mayor, lo que la salva en los botes.
    - Para objetos rápidos y borrosos (una pelota que cae), activa *Plantilla evolutiva* y usa un radio de al menos la distancia que recorre entre fotogramas.
 6. **Analiza.** La gráfica deja elegir cualquier variable frente a otra y ajustar una recta, parábola o cúbica (con su $R^2$, ver [Ajuste de curvas](#ajuste-de-curvas)). Clic en un punto de la gráfica o en una fila de la tabla lleva a ese fotograma.
@@ -69,7 +69,15 @@ v_{x,i} = \frac{x_{i+1} - x_{i-1}}{2\,\Delta t},
 a_{x,i} = \frac{x_{i+1} - 2x_i + x_{i-1}}{\Delta t^2}
 ```
 
-Los módulos son $|v| = \sqrt{v_x^2 + v_y^2}$ y $|a| = \sqrt{a_x^2 + a_y^2}$. El primer y el último punto no tienen velocidad ni aceleración, porque les falta un vecino.
+Los módulos son
+
+```math
+|v| = \sqrt{v_x^2 + v_y^2},
+\qquad
+|a| = \sqrt{a_x^2 + a_y^2}
+```
+
+El primer y el último punto no tienen velocidad ni aceleración, porque les falta un vecino.
 
 ### Autotracking
 
@@ -104,7 +112,7 @@ que vale $1$ si la curva pasa exactamente por todos los puntos. En un ajuste par
 | `←` `→` | Paso anterior / siguiente (`Mayús`: de 10 en 10) |
 | `Inicio` `Fin` | Principio / final del rango |
 | `Espacio` | Reproducir / pausar |
-| `M` / `V` | Herramienta Marcar / Mover |
+| `A` / `M` / `V` | Herramienta Auto / Marcar / Mover |
 | `Supr` | Borrar el punto del fotograma actual |
 | `Ctrl+Z` / `Ctrl+Y` | Deshacer / rehacer |
 | Rueda | Zoom; arrastrar con botón derecho o central para desplazar |

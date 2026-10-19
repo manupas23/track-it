@@ -590,8 +590,14 @@ async function autotrack() {
   if (S.auto) { S.auto = false; return; }
   const tr = selTrack();
   if (!tr) return;
-  const start = S.frame;
-  if (!tr.points[start]) { toast('Marca primero el objeto en este fotograma (Mayús+clic).'); return; }
+  // Arranca en el fotograma actual o, si no está marcado, en el último marcado antes de él
+  // (después de marcar, la app ya ha avanzado al siguiente paso).
+  let start = S.frame;
+  if (!tr.points[start]) {
+    const before = sortedFrames(tr).filter((n) => n < S.frame && n >= S.range.start);
+    if (!before.length) { toast('Haz clic sobre el objeto con la herramienta Auto (A), o márcalo primero.'); return; }
+    start = before[before.length - 1];
+  }
   if (S.playing) togglePlay();
   let size = parseInt($('tplSize').value, 10) || 21;
   if (size % 2 === 0) size++;
@@ -958,6 +964,16 @@ view.addEventListener('pointerdown', (e) => {
   if (e.button === 1 || e.button === 2) { drag = { kind: 'pan', sp, v: { ...S.view } }; return; }
   if (e.button !== 0) return;
   if (S.playing) togglePlay();
+  // Herramienta Auto: un clic marca el objeto aquí y lo sigue solo en los fotogramas siguientes.
+  if (S.tool === 'auto' && !e.shiftKey) {
+    const tr = selTrack() || addTrack();
+    setPoint(tr, S.frame, toImage(sp));
+    hist.commit();
+    syncData();
+    render(false);
+    autotrack();
+    return;
+  }
   const marking = S.tool === 'mark' || e.shiftKey;
   if (marking) {
     let tr = selTrack();
@@ -1011,7 +1027,7 @@ function handleMove(e) {
     const h = S.auto ? null : hitTest(sp);
     const changed = (h && h.kind) !== (hover && hover.kind) || (h && hover && h.tr !== hover.tr);
     hover = h;
-    setCursor(h ? (h.cursor || (h.kind === 'pt' || h.kind === 'origin' ? 'move' : 'grab')) : (S.tool === 'mark' || e.shiftKey ? 'crosshair' : 'default'));
+    setCursor(h ? (h.cursor || (h.kind === 'pt' || h.kind === 'origin' ? 'move' : 'grab')) : (S.tool !== 'move' || e.shiftKey ? 'crosshair' : 'default'));
     if (changed) render(false);
     return;
   }
@@ -1708,7 +1724,7 @@ document.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click',
 function setTool(t) {
   S.tool = t;
   document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
-  setCursor(t === 'mark' ? 'crosshair' : 'default');
+  setCursor(t === 'move' ? 'default' : 'crosshair');
 }
 
 for (const [id, key] of [['showCalib', 'calib'], ['showAxes', 'axes'], ['showTrails', 'trails'], ['showSearch', 'search']]) {
@@ -1758,6 +1774,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'End') { e.preventDefault(); if (S.loaded) seekFrame(S.range.end); }
   else if (k === ' ') { e.preventDefault(); togglePlay(); }
   else if (k === 'm' || k === 'M') setTool('mark');
+  else if (k === 'a' || k === 'A') setTool('auto');
   else if (k === 'v' || k === 'V') setTool('move');
   else if (k === 'f' || k === 'F') fitView();
   else if (k === '?') $('help').showModal();

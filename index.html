@@ -27,7 +27,8 @@
     <div class="toolbar">
       <div class="seg" role="group" aria-label="Herramienta">
         <button class="seg-btn active" data-tool="move" title="Mover y editar (V)">Mover</button>
-        <button class="seg-btn" data-tool="mark" title="Marcar puntos (M). Con Mayús+clic marcas en cualquier modo">Marcar</button>
+        <button class="seg-btn" data-tool="mark" title="Marcar puntos a mano (M). Con Mayús+clic marcas en cualquier modo">Marcar</button>
+        <button class="seg-btn" data-tool="auto" title="Autotracking (A): haz clic sobre el objeto y se sigue solo desde este fotograma">Auto</button>
       </div>
       <label class="chk"><input type="checkbox" id="showCalib" checked> Vara</label>
       <label class="chk"><input type="checkbox" id="showAxes" checked> Ejes</label>
@@ -106,7 +107,7 @@
           <p class="hint">Esto es lo que se busca. En el vídeo, el recuadro sólido es la plantilla y el discontinuo, la zona donde se buscará en el siguiente paso.</p>
         </div>
         <button class="btn primary small" id="btnAuto" disabled>Autotrack desde aquí</button>
-        <p class="hint">Marca el objeto en un fotograma y pulsa el botón: lo busca en los siguientes.</p>
+        <p class="hint">Lo más rápido: herramienta <b>Auto</b> (<kbd>A</kbd>) y clic sobre el objeto. El botón sigue desde el último punto marcado; <kbd>Esc</kbd> lo detiene.</p>
       </div>
     </details>
 
@@ -143,7 +144,7 @@
     <li><b>Abre un vídeo</b> (o arrástralo). Comprueba los fps y, si es cámara lenta, pon los fps reales.</li>
     <li><b>Calibra</b>: coloca la vara azul sobre algo de longitud conocida y escribe esa longitud.</li>
     <li><b>Coloca los ejes</b>: arrastra el origen y gíralos con el asa.</li>
-    <li><b>Marca</b>: elige un objeto, activa <i>Marcar</i> y haz clic sobre él; avanza solo al siguiente paso. O márcalo una vez y usa <i>Autotrack</i>.</li>
+    <li><b>Sigue el objeto</b>: con <i>Auto</i> (<kbd>A</kbd>), un clic sobre él lo sigue solo en los fotogramas siguientes. Con <i>Marcar</i> (<kbd>M</kbd>) lo marcas a mano y avanza solo al siguiente paso.</li>
     <li>Mira la gráfica y la tabla, ajusta curvas y <b>exporta a CSV</b>.</li>
   </ol>
   <h3>Atajos</h3>
@@ -151,7 +152,7 @@
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Paso anterior / siguiente (con <kbd>Mayús</kbd>, de 10 en 10)</td></tr>
     <tr><td><kbd>Inicio</kbd> <kbd>Fin</kbd></td><td>Principio / final del rango</td></tr>
     <tr><td><kbd>Espacio</kbd></td><td>Reproducir / pausar</td></tr>
-    <tr><td><kbd>M</kbd> <kbd>V</kbd></td><td>Herramienta Marcar / Mover</td></tr>
+    <tr><td><kbd>A</kbd> <kbd>M</kbd> <kbd>V</kbd></td><td>Herramienta Auto / Marcar / Mover</td></tr>
     <tr><td><kbd>Mayús</kbd>+clic</td><td>Marcar punto en cualquier herramienta</td></tr>
     <tr><td><kbd>Supr</kbd></td><td>Borrar el punto de este fotograma</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></td><td>Deshacer / rehacer</td></tr>
