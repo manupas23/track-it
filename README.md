@@ -1,4 +1,4 @@
-# Track-it
+# TrackIt
 
 Videoanálisis para física en el navegador, al estilo de [Tracker](https://physlets.org/tracker/): calibras la escala, colocas unos ejes, sigues objetos fotograma a fotograma (a mano o con autotracking) y obtienes posiciones, velocidades, aceleraciones, gráficas con ajuste de curvas y un CSV.
 
@@ -51,6 +51,14 @@ Abre `index.html` (o la versión publicada) en Chrome, Edge o Firefox.
 | Rueda | Zoom; arrastrar con botón derecho o central para desplazar |
 | `F` | Ajustar el vídeo a la ventana |
 | `Esc` | Detener el autotracking |
+
+## Rendimiento
+
+- El vídeo y las marcas van en dos lienzos superpuestos: pasar el ratón, arrastrar o marcar solo repinta las marcas.
+- Todo el dibujo se agrupa en, como mucho, un repintado por refresco de pantalla; al reproducir se pinta solo cuando el vídeo presenta un fotograma nuevo (`requestVideoFrameCallback`).
+- Filas de datos, gráfica y tabla se recalculan solo cuando cambian los datos. La gráfica guarda su base en caché y por fotograma solo mueve el punto actual.
+- La tabla está virtualizada: solo existen en la página las filas visibles, así que pesa lo mismo con 300 puntos que con 30 000.
+- El autoguardado se agrupa (como mucho cada 0,4 s) y el historial de deshacer guarda 100 pasos.
 
 ## Código
 

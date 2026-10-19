@@ -77,7 +77,8 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .chk input { accent-color: var(--accent); }
 
 .stage { flex: 1; position: relative; min-height: 240px; background: #0b0b0a; overflow: hidden; }
-#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#view, #overlay { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#overlay { pointer-events: none; }
 #video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: 0; top: 0; }
 .drop {
   position: absolute; inset: 16px; display: grid; place-items: center; text-align: center;
@@ -147,9 +148,19 @@ output { padding: 6px 0; color: var(--text-primary); }
 .tip b { font-weight: 600; }
 .fitout { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; color: var(--text-secondary); min-height: 1em; margin-top: 6px; white-space: pre-wrap; }
 
-.tablewrap { max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: 6px; }
+/* Fondo opaco y capa propia: el navegador puede desplazar la tabla y resaltar una fila sin
+   repintarla entera en cada fotograma. */
+.tablewrap {
+  max-height: 300px; overflow: auto; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-1); will-change: scroll-position; contain: content;
+}
 table#dataTable { border-collapse: collapse; width: 100%; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
 #dataTable th, #dataTable td { padding: 3px 7px; text-align: right; white-space: nowrap; }
+/* Altura de fila fija (ROW_H en app.js): la tabla virtualizada calcula posiciones con ella. */
+#dataTable tbody td { height: 20px; padding-top: 0; padding-bottom: 0; line-height: 20px; box-sizing: border-box; }
+#dataTable tr.spacer td { padding: 0; height: auto; }
+#dataTable tr.spacer { cursor: default; }
+#dataTable tbody tr.spacer:hover { background: none; }
 #dataTable th { position: sticky; top: 0; background: var(--surface-2); color: var(--text-secondary); font-weight: 600; }
 #dataTable tr { cursor: pointer; }
 #dataTable tbody tr:hover { background: var(--surface-2); }

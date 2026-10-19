@@ -1,12 +1,17 @@
 'use strict';
-// Track-it: videoanálisis en el navegador.
+// TrackIt: videoanálisis en el navegador.
+// (Los identificadores internos, como la clave del autoguardado o el campo app de los
+// proyectos, siguen siendo 'track-it' para no perder lo guardado con versiones anteriores.)
 // Coordenadas internas en píxeles de la imagen (y hacia abajo); las del usuario,
 // en el sistema de ejes calibrado (y hacia arriba).
 
 const $ = (id) => document.getElementById(id);
 const video = $('video');
 const view = $('view');
-const vctx = view.getContext('2d');
+const vctx = view.getContext('2d', { alpha: false });
+// Capa de marcas encima del vídeo: se repinta sola cuando no cambia el fotograma.
+const over = $('overlay');
+const octx = over.getContext('2d');
 const grab = document.createElement('canvas');
 const gctx = grab.getContext('2d', { willReadFrequently: true });
 
@@ -33,6 +38,13 @@ const S = {
 
 let nextTrackId = 1;
 let pendingProject = null;
+
+// Versión de los datos: sube con cualquier cambio de puntos, calibración, ejes, tiempo
+// o rango, y con ella caducan las cachés de filas, gráfica y tabla.
+let dataVersion = 0;
+const touch = () => { dataVersion++; };
+// Fotograma mostrado: sube en cada salto o fotograma nuevo de la reproducción.
+let frameToken = 0;
 
 /* ---------- utilidades ---------- */
 
@@ -124,6 +136,7 @@ const timeOf = (n) => (n - S.range.start) / S.fpsReal;
 /* ---------- vídeo ---------- */
 
 function loadVideo(file) {
+  flushSave();
   if (S.playing) togglePlay();
   recovery = null;
   recentErrors.length = 0;
@@ -163,11 +176,11 @@ video.addEventListener('error', () => {
   if (recentErrors.length > 3) {
     recovery = null;
     S.loaded = true;
-    console.warn('Track-it: el vídeo falla repetidamente', video.error);
+    console.warn('TrackIt: el vídeo falla repetidamente', video.error);
     toast(`El navegador no consigue decodificar este vídeo en el fotograma ${S.frame} (${errInfo()}). Prueba con otro navegador, desactiva la aceleración por hardware o conviértelo a MP4 (H.264). El análisis no se ha perdido.`, 12000);
     return;
   }
-  console.warn('Track-it: error del vídeo, recargando', video.error);
+  console.warn('TrackIt: error del vídeo, recargando', video.error);
   recovery = { frame: S.frame };
   S.loaded = false;
   busy('El vídeo ha fallado; recargando…');
@@ -281,6 +294,7 @@ async function runSeek() {
     await seekRaw(n);
   }
   seeking = null;
+  frameToken++;
   render();
   syncFrameUI();
 }
@@ -311,18 +325,27 @@ function togglePlay() {
     if (S.frame >= S.range.end) seekFrame(S.range.start);
     S.playing = true;
     video.play();
-    const loop = () => {
+    // Se pinta solo cuando el vídeo presenta un fotograma nuevo (no a 60 Hz fijos).
+    const rvfc = 'requestVideoFrameCallback' in video;
+    const next = () => (rvfc ? video.requestVideoFrameCallback(onFrame) : requestAnimationFrame(onFrame));
+    const onFrame = (now, meta) => {
       if (!S.playing) return;
-      S.frame = clamp(Math.floor(video.currentTime * S.fps), 0, S.nFrames - 1);
-      if (S.frame >= S.range.end || video.ended) { togglePlay(); return; }
-      render();
-      syncFrameUI();
-      requestAnimationFrame(loop);
+      const f = clamp(meta && meta.mediaTime !== undefined ? Math.round(meta.mediaTime * S.fps) : Math.floor(video.currentTime * S.fps), 0, S.nFrames - 1);
+      if (f >= S.range.end || video.ended) { togglePlay(); return; }
+      if (f !== S.frame) {
+        S.frame = f;
+        frameToken++;
+        render();
+        syncFrameUI();
+      }
+      next();
     };
-    requestAnimationFrame(loop);
+    next();
   }
   $('btnPlay').textContent = S.playing ? '❚❚' : '▶';
 }
+// Con requestVideoFrameCallback no llega aviso al acabar el vídeo: se escucha aparte.
+video.addEventListener('ended', () => { if (S.playing) togglePlay(); });
 
 function step(k) {
   if (!S.loaded || S.auto) return;
@@ -345,15 +368,30 @@ const selTrack = () => S.tracks.find((t) => t.id === S.sel) || null;
 
 function setPoint(tr, n, p) {
   tr.points[n] = { x: clamp(p.x, 0, S.W), y: clamp(p.y, 0, S.H) };
+  touch();
 }
 
-function sortedFrames(tr) {
-  return Object.keys(tr.points).map(Number).sort((a, b) => a - b);
+// Caché por objeto de los fotogramas ordenados y de las filas de datos (WeakMap, para que
+// no acabe dentro de los proyectos guardados). Caduca al cambiar dataVersion.
+const trackCache = new WeakMap();
+function cacheOf(tr) {
+  let c = trackCache.get(tr);
+  if (!c || c.v !== dataVersion) {
+    c = { v: dataVersion, frames: Object.keys(tr.points).map(Number).sort((a, b) => a - b), rows: null };
+    trackCache.set(tr, c);
+  }
+  return c;
+}
+const sortedFrames = (tr) => cacheOf(tr).frames;
+function trackRows(tr) {
+  const c = cacheOf(tr);
+  if (!c.rows) c.rows = computeRows(tr, c.frames);
+  return c.rows;
 }
 
 // Filas de datos con derivadas por diferencias centradas (admite huecos).
-function trackRows(tr) {
-  const fr = sortedFrames(tr).filter((n) => n >= S.range.start && n <= S.range.end);
+function computeRows(tr, frames) {
+  const fr = frames.filter((n) => n >= S.range.start && n <= S.range.end);
   const rows = fr.map((n) => {
     const w = toWorld(tr.points[n]);
     return { frame: n, t: timeOf(n), x: w.x, y: w.y, r: Math.hypot(w.x, w.y) };
@@ -396,6 +434,8 @@ const varLabel = (k) => { const v = varOf(k); const u = v.u(); return u ? `${v.l
 const PYR_MIN = 10;
 
 function grayRegion(x0, y0, w, h) {
+  // Solo la región que se busca: convertir el fotograma entero (1080×1920) cuesta más que
+  // convertir dos o tres regiones pequeñas por paso.
   gctx.drawImage(video, x0, y0, w, h, x0, y0, w, h);
   const img = gctx.getImageData(x0, y0, w, h).data;
   const g = new Float32Array(w * h);
@@ -603,7 +643,8 @@ async function autotrack() {
     }
     render();
     syncFrameUI();
-    if (count % 4 === 0) { syncData(); await sleepFrame(); }
+    drawPlot();
+    if (count % 4 === 0) await sleepFrame();
   }
   S.auto = false;
   syncAutoBtn();
@@ -618,8 +659,8 @@ let dpr = 1;
 function resizeCanvas() {
   dpr = window.devicePixelRatio || 1;
   const r = view.getBoundingClientRect();
-  view.width = Math.round(r.width * dpr);
-  view.height = Math.round(r.height * dpr);
+  view.width = over.width = Math.round(r.width * dpr);
+  view.height = over.height = Math.round(r.height * dpr);
   render();
 }
 
@@ -646,7 +687,25 @@ function axisHandle() {
 
 let hover = null;
 
-function render() {
+// Repintado agrupado: como mucho uno por refresco de pantalla. render() repinta el vídeo y
+// las marcas; render(false), solo las marcas (pasar el ratón, arrastrar, marcar…).
+let needBase = false, needOver = false, renderQueued = false;
+function render(base = true) {
+  if (base) needBase = true;
+  needOver = true;
+  if (!renderQueued) {
+    renderQueued = true;
+    requestAnimationFrame(flushRender);
+  }
+}
+function flushRender() {
+  renderQueued = false;
+  if (needBase) drawBase();
+  if (needOver) drawOverlay();
+  needBase = needOver = false;
+}
+
+function drawBase() {
   const ctx = vctx;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#0b0b0a';
@@ -656,11 +715,18 @@ function render() {
   ctx.setTransform(dpr * s, 0, 0, dpr * s, dpr * tx, dpr * ty);
   ctx.imageSmoothingEnabled = s < 2.5;
   try { ctx.drawImage(video, 0, 0, S.W, S.H); } catch (e) { /* aún sin fotograma */ }
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
 
-  if (S.show.axes) drawAxes(ctx);
-  if (S.show.calib) drawCalib(ctx);
-  for (const tr of S.tracks) if (tr.visible) drawTrack(ctx, tr);
+function drawOverlay() {
+  const ctx = octx;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, over.width, over.height);
+  if (S.loaded || S.W) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    if (S.show.axes) drawAxes(ctx);
+    if (S.show.calib) drawCalib(ctx);
+    for (const tr of S.tracks) if (tr.visible) drawTrack(ctx, tr);
+  }
   drawTplPreview();
 }
 
@@ -725,14 +791,19 @@ function drawTrack(ctx, tr) {
     outlinedLine(ctx, pts, tr.color, 1.2);
     ctx.globalAlpha = 1;
   }
-  if (S.show.trails) {
+  if (S.show.trails && frames.length) {
+    // Todos los puntos en un solo trazo. Primero los contornos y luego los rellenos, para que
+    // el contorno de un punto no tape a sus vecinos cuando están muy juntos.
+    const rad = isSel ? 3 : 2.2;
+    ctx.beginPath();
     for (const n of frames) {
       if (n === S.frame) continue;
       const p = toScreen(tr.points[n]);
-      ctx.beginPath(); ctx.arc(p.x, p.y, isSel ? 3 : 2.2, 0, 7);
-      ctx.fillStyle = tr.color; ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.moveTo(p.x + rad, p.y);
+      ctx.arc(p.x, p.y, rad, 0, 2 * Math.PI);
     }
+    ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = tr.color; ctx.fill();
   }
   const cur = tr.points[S.frame];
   if (cur) {
@@ -810,21 +881,26 @@ function drawSearchZone(ctx) {
 }
 
 // Vista ampliada de la plantilla en el panel de autotracking.
+let previewKey = null;
 function drawTplPreview() {
+  const tr = selTrack();
+  const cur = tr && tr.points[S.frame];
+  const { size } = tplParams();
+  // Solo se redibuja si cambia algo de lo que muestra.
+  const key = S.loaded && cur ? `${frameToken}|${cur.x}|${cur.y}|${size}|${tr.color}` : `vacío|${theme.muted}`;
+  if (key === previewKey) return;
+  previewKey = key;
   const cv = $('tplPreview');
   const ctx = cv.getContext('2d');
   ctx.clearRect(0, 0, cv.width, cv.height);
-  const tr = selTrack();
-  const cur = tr && tr.points[S.frame];
   if (!S.loaded || !cur) {
-    ctx.fillStyle = cssVar('--text-muted');
+    ctx.fillStyle = theme.muted;
     ctx.font = '11px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText('sin punto', cv.width / 2, cv.height / 2 + 4);
     ctx.textAlign = 'left';
     return;
   }
-  const { size } = tplParams();
   const h = (size - 1) / 2;
   ctx.imageSmoothingEnabled = false;
   try { ctx.drawImage(video, Math.round(cur.x) - h, Math.round(cur.y) - h, size, size, 0, 0, cv.width, cv.height); } catch (e) { /* sin fotograma */ }
@@ -870,7 +946,8 @@ function hitTest(sp) {
 }
 
 let drag = null;
-const evPos = (e) => { const r = view.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+// offsetX/Y ya vienen relativos al lienzo: sin getBoundingClientRect (que fuerza maquetar) en cada evento.
+const evPos = (e) => ({ x: e.offsetX, y: e.offsetY });
 
 view.addEventListener('contextmenu', (e) => e.preventDefault());
 
@@ -888,7 +965,7 @@ view.addEventListener('pointerdown', (e) => {
     setPoint(tr, S.frame, toImage(sp));
     hist.commit();
     syncData();
-    render();
+    render(false);
     const nx = S.frame + S.range.step;
     if (nx <= S.range.end) seekFrame(nx);
     return;
@@ -902,61 +979,85 @@ view.addEventListener('pointerdown', (e) => {
   }
 });
 
+// Escrituras al DOM solo si cambian (cada una invalida estilos o maquetación).
+let lastCursor = '', lastReadout = '';
+function setCursor(c) { if (c !== lastCursor) { lastCursor = c; view.style.cursor = c; } }
+function setReadout(t) { if (t !== lastReadout) { lastReadout = t; $('cursorReadout').textContent = t; } }
+
+// Los movimientos del ratón se atienden como mucho una vez por refresco de pantalla.
+let moveEv = null, moveRaf = 0;
 view.addEventListener('pointermove', (e) => {
+  moveEv = e;
+  if (!moveRaf) moveRaf = requestAnimationFrame(flushMove);
+});
+function flushMove() {
+  moveRaf = 0;
+  const e = moveEv;
+  moveEv = null;
+  if (e) handleMove(e);
+}
+
+function handleMove(e) {
   if (!S.loaded) return;
   const sp = evPos(e);
   const ip = toImage(sp);
   const inside = ip.x >= 0 && ip.y >= 0 && ip.x <= S.W && ip.y <= S.H;
   if (inside) {
     const w = toWorld(ip);
-    $('cursorReadout').textContent = `x = ${fmt(w.x)}  y = ${fmt(w.y)} ${unit()}`;
-  } else $('cursorReadout').textContent = '';
+    setReadout(`x = ${fmt(w.x)}  y = ${fmt(w.y)} ${unit()}`);
+  } else setReadout('');
 
   if (!drag) {
     const h = S.auto ? null : hitTest(sp);
     const changed = (h && h.kind) !== (hover && hover.kind) || (h && hover && h.tr !== hover.tr);
     hover = h;
-    view.style.cursor = h ? (h.cursor || (h.kind === 'pt' || h.kind === 'origin' ? 'move' : 'grab')) : (S.tool === 'mark' || e.shiftKey ? 'crosshair' : 'default');
-    if (changed) render();
+    setCursor(h ? (h.cursor || (h.kind === 'pt' || h.kind === 'origin' ? 'move' : 'grab')) : (S.tool === 'mark' || e.shiftKey ? 'crosshair' : 'default'));
+    if (changed) render(false);
     return;
   }
   if (drag.kind === 'pan') {
     S.view.tx = drag.v.tx + sp.x - drag.sp.x;
     S.view.ty = drag.v.ty + sp.y - drag.sp.y;
-    view.style.cursor = 'grabbing';
-  } else {
-    drag.moved = true;
-    const p = { x: clamp(ip.x, 0, S.W), y: clamp(ip.y, 0, S.H) };
-    if (drag.kind === 'tplCorner' || drag.kind === 'searchCorner') {
-      // Redimensionar como una imagen: el recuadro crece o mengua alrededor de su centro.
-      const G = searchGeom();
-      if (G) {
-        const o = drag.kind === 'tplCorner' ? G.cur : G.pred;
-        const d = Math.max(Math.abs(ip.x - o.x), Math.abs(ip.y - o.y));
-        if (drag.kind === 'tplCorner') {
-          $('tplSize').value = clamp(2 * Math.round(d) + 1, 5, 801);
-        } else {
-          $('searchR').value = clamp(Math.round(d - tplParams().size / 2), 3, 1500);
-        }
-        view.style.cursor = drag.cursor;
-      }
-    } else if (drag.kind === 'pt') setPoint(drag.tr, S.frame, p);
-    else if (drag.kind === 'ca') S.calib.a = p;
-    else if (drag.kind === 'cb') S.calib.b = p;
-    else if (drag.kind === 'origin') { S.axes.ox = p.x; S.axes.oy = p.y; }
-    else if (drag.kind === 'angle') {
-      const o = toScreen({ x: S.axes.ox, y: S.axes.oy });
-      let a = Math.atan2(-(sp.y - o.y), sp.x - o.x);
-      if (e.shiftKey) a = Math.round(a / (Math.PI / 12)) * (Math.PI / 12);
-      S.axes.angle = a;
-    }
-    syncCalibUI();
-    syncData();
+    setCursor('grabbing');
+    render();
+    return;
   }
-  render();
-});
+  drag.moved = true;
+  const p = { x: clamp(ip.x, 0, S.W), y: clamp(ip.y, 0, S.H) };
+  if (drag.kind === 'tplCorner' || drag.kind === 'searchCorner') {
+    // Redimensionar como una imagen: el recuadro crece o mengua alrededor de su centro.
+    const G = searchGeom();
+    if (G) {
+      const o = drag.kind === 'tplCorner' ? G.cur : G.pred;
+      const d = Math.max(Math.abs(ip.x - o.x), Math.abs(ip.y - o.y));
+      if (drag.kind === 'tplCorner') {
+        $('tplSize').value = clamp(2 * Math.round(d) + 1, 5, 801);
+      } else {
+        $('searchR').value = clamp(Math.round(d - tplParams().size / 2), 3, 1500);
+      }
+      setCursor(drag.cursor);
+    }
+    render(false);
+    return;
+  }
+  if (drag.kind === 'pt') setPoint(drag.tr, S.frame, p);
+  else if (drag.kind === 'ca') S.calib.a = p;
+  else if (drag.kind === 'cb') S.calib.b = p;
+  else if (drag.kind === 'origin') { S.axes.ox = p.x; S.axes.oy = p.y; }
+  else if (drag.kind === 'angle') {
+    const o = toScreen({ x: S.axes.ox, y: S.axes.oy });
+    let a = Math.atan2(-(sp.y - o.y), sp.x - o.x);
+    if (e.shiftKey) a = Math.round(a / (Math.PI / 12)) * (Math.PI / 12);
+    S.axes.angle = a;
+  }
+  syncCalibUI();
+  syncData();
+  render(false);
+}
 
 view.addEventListener('pointerup', () => {
+  // Aplicar el último movimiento pendiente antes de soltar.
+  if (moveRaf) { cancelAnimationFrame(moveRaf); flushMove(); }
   if (drag && drag.moved) hist.commit();
   drag = null;
 });
@@ -1036,15 +1137,55 @@ function binom(n, k) { let r = 1; for (let i = 1; i <= k; i++) r = (r * (n - k +
 
 function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
 
+// Colores del tema, leídos una vez (getComputedStyle en cada dibujo obliga a recalcular estilos).
+const theme = {};
+function readTheme() {
+  Object.assign(theme, {
+    ink: cssVar('--text-secondary'), muted: cssVar('--text-muted'), grid: cssVar('--grid'),
+    surf: cssVar('--surface-1'), primary: cssVar('--text-primary'),
+  });
+}
+readTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { readTheme(); plotKey = null; drawPlot(); render(false); });
+
+// La gráfica se dibuja en dos partes: una base en caché (ejes, puntos, ajuste), que solo se
+// rehace si cambian los datos, el tamaño o las variables, y encima el punto del fotograma actual.
+const plotBase = document.createElement('canvas');
+let plotKey = null, plotQueued = false;
 function drawPlot() {
-  const r = plot.getBoundingClientRect();
-  const W = r.width, H = r.height;
-  plot.width = Math.round(W * dpr);
-  plot.height = Math.round(H * dpr);
+  if (plotQueued) return;
+  plotQueued = true;
+  requestAnimationFrame(drawPlotNow);
+}
+function drawPlotNow() {
+  plotQueued = false;
+  const W = plot.clientWidth, H = plot.clientHeight;
+  if (!W || !H) return; // panel plegado
+  const pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+  if (plot.width !== pw || plot.height !== ph) { plot.width = pw; plot.height = ph; }
+  const key = [dataVersion, S.sel, $('plotX').value, $('plotY').value, $('fitType').value, pw, ph, theme.ink].join('|');
+  if (key !== plotKey) {
+    plotKey = key;
+    plotBase.width = pw; plotBase.height = ph;
+    const bctx = plotBase.getContext('2d');
+    bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    buildPlotBase(bctx, W, H);
+  }
   const ctx = pctx;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, W, H);
-  const ink = cssVar('--text-secondary'), muted = cssVar('--text-muted'), grid = cssVar('--grid');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, pw, ph);
+  ctx.drawImage(plotBase, 0, 0);
+  const cur = plotState && plotState.byFrame.get(S.frame);
+  if (cur) {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.beginPath(); ctx.arc(cur.px, cur.py, 5.5, 0, 2 * Math.PI);
+    ctx.fillStyle = plotState.tr.color; ctx.fill();
+    ctx.strokeStyle = theme.primary; ctx.lineWidth = 2; ctx.stroke();
+  }
+}
+
+function buildPlotBase(ctx, W, H) {
+  const { ink, muted, grid } = theme;
   const tr = selTrack();
   const kx = $('plotX').value, ky = $('plotY').value;
   const rows = tr ? trackRows(tr) : [];
@@ -1114,13 +1255,18 @@ function drawPlot() {
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
-  const surf = cssVar('--surface-1');
+  // Todos los puntos en un solo trazo (contornos primero, rellenos encima); el del fotograma
+  // actual se pinta aparte, encima.
+  const byFrame = new Map();
+  ctx.beginPath();
   for (const p of pts) {
-    const cur = p.d.frame === S.frame;
-    ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), cur ? 5.5 : 3.5, 0, 7);
-    ctx.fillStyle = tr.color; ctx.fill();
-    ctx.strokeStyle = cur ? cssVar('--text-primary') : surf; ctx.lineWidth = cur ? 2 : 1.5; ctx.stroke();
+    const px = X(p.x), py = Y(p.y);
+    byFrame.set(p.d.frame, { px, py });
+    ctx.moveTo(px + 3.5, py);
+    ctx.arc(px, py, 3.5, 0, 2 * Math.PI);
   }
+  ctx.strokeStyle = theme.surf; ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = tr.color; ctx.fill();
   ctx.restore();
 
   if (deg && !fit) $('fitOut').textContent = `Hacen falta al menos ${deg + 1} puntos para este ajuste.`;
@@ -1137,7 +1283,7 @@ function drawPlot() {
     const parts = fit.coef.map((c, k) => `${letters[deg - k]} = ${fmt(c)}`).reverse();
     $('fitOut').textContent = `${eq}\n${parts.join('   ')}   R² = ${fit.r2.toFixed(5)}`;
   }
-  plotState = { pts, X, Y, kx, ky, tr };
+  plotState = { pts, X, Y, kx, ky, tr, byFrame };
 }
 
 function plotHover(e) {
@@ -1165,33 +1311,99 @@ plot.addEventListener('click', (e) => { const p = plotHover(e); if (p) seekFrame
 
 /* ---------- tabla ---------- */
 
-function drawTable() {
-  const tr = selTrack();
-  const tbl = $('dataTable');
-  const cols = ['frame', 't', 'x', 'y', 'vx', 'vy', 'ax', 'ay'];
-  const head = `<thead><tr>${cols.map((k) => `<th>${k === 'frame' ? 'fot.' : varLabel(k)}</th>`).join('')}</tr></thead>`;
-  const rows = tr ? trackRows(tr) : [];
-  if (!rows.length) { tbl.innerHTML = head + '<tbody><tr><td class="empty" colspan="8">Sin puntos</td></tr></tbody>'; return; }
-  tbl.innerHTML = head + '<tbody>' + rows.map((d) =>
-    `<tr data-f="${d.frame}"${d.frame === S.frame ? ' class="cur"' : ''}>${cols.map((k) => `<td>${k === 'frame' ? d.frame : fmt(d[k])}</td>`).join('')}</tr>`
-  ).join('') + '</tbody>';
+// Tabla virtualizada: solo existen en la página las filas visibles y un margen; dos filas
+// espaciadoras ocupan el sitio del resto. Así pesa lo mismo con 300 puntos que con 30 000,
+// y seguir el fotograma actual no repinta cientos de filas.
+const TABLE_COLS = ['frame', 't', 'x', 'y', 'vx', 'vy', 'ax', 'ay'];
+const ROW_H = 20; // fijado también en style.css
+const tableEl = $('dataTable');
+const tableWrap = tableEl.closest('.tablewrap');
+let tableKey = null, tableTimer = 0;
+let tableData = [], tableIndex = new Map(), tableBody = null;
+let tableFirst = -1, tableLast = -1, tableScroll = 0, tableWrapH = 0, tableHeadH = 0;
+
+function scheduleTable(delay = 150) {
+  clearTimeout(tableTimer);
+  tableTimer = setTimeout(drawTable, delay);
 }
-$('dataTable').addEventListener('click', (e) => {
+function drawTable() {
+  clearTimeout(tableTimer);
+  const tr = selTrack();
+  const key = `${dataVersion}|${S.sel}`;
+  if (key === tableKey) return;
+  tableKey = key;
+  const head = `<thead><tr>${TABLE_COLS.map((k) => `<th>${k === 'frame' ? 'fot.' : varLabel(k)}</th>`).join('')}</tr></thead>`;
+  tableData = tr ? trackRows(tr) : [];
+  tableIndex = new Map(tableData.map((d, i) => [d.frame, i]));
+  if (!tableData.length) {
+    tableEl.innerHTML = head + '<tbody><tr><td class="empty" colspan="8">Sin puntos</td></tr></tbody>';
+    tableBody = null;
+    return;
+  }
+  tableEl.innerHTML = head + '<tbody></tbody>';
+  tableBody = tableEl.tBodies[0];
+  tableFirst = tableLast = -1;
+  renderTableWindow();
+  tableWrapH = 0; // se mide ya con las filas pintadas
+  highlightTableRow(true);
+}
+
+function measureTable() {
+  tableWrapH = tableWrap.clientHeight;
+  tableHeadH = tableEl.tHead ? tableEl.tHead.offsetHeight : 0;
+  tableScroll = tableWrap.scrollTop;
+}
+
+function renderTableWindow() {
+  if (!tableBody) return;
+  const n = tableData.length;
+  const visible = Math.ceil(Math.max(tableWrapH, 300) / ROW_H); // 300 = max-height de .tablewrap
+  const first = Math.max(0, Math.floor((tableScroll - tableHeadH) / ROW_H) - 10);
+  const last = Math.min(n, first + visible + 20);
+  if (first === tableFirst && last === tableLast) return;
+  tableFirst = first; tableLast = last;
+  let html = first ? `<tr class="spacer" style="height:${first * ROW_H}px"><td colspan="8"></td></tr>` : '';
+  for (let i = first; i < last; i++) {
+    const d = tableData[i];
+    html += `<tr data-f="${d.frame}"${d.frame === S.frame ? ' class="cur"' : ''}>${TABLE_COLS.map((k) => `<td>${k === 'frame' ? d.frame : fmt(d[k])}</td>`).join('')}</tr>`;
+  }
+  if (last < n) html += `<tr class="spacer" style="height:${(n - last) * ROW_H}px"><td colspan="8"></td></tr>`;
+  tableBody.innerHTML = html;
+}
+
+let tableScrollQueued = false;
+tableWrap.addEventListener('scroll', () => {
+  tableScroll = tableWrap.scrollTop;
+  if (!tableScrollQueued) {
+    tableScrollQueued = true;
+    requestAnimationFrame(() => { tableScrollQueued = false; renderTableWindow(); });
+  }
+}, { passive: true });
+
+tableEl.addEventListener('click', (e) => {
   const row = e.target.closest('tr[data-f]');
   if (row) seekFrame(+row.dataset.f);
 });
 
-function highlightTableRow() {
-  const tbl = $('dataTable');
-  tbl.querySelectorAll('tr.cur').forEach((r) => r.classList.remove('cur'));
-  const row = tbl.querySelector(`tr[data-f="${S.frame}"]`);
-  if (row) {
-    row.classList.add('cur');
-    const wrap = tbl.parentElement;
-    if (row.offsetTop < wrap.scrollTop + 24 || row.offsetTop > wrap.scrollTop + wrap.clientHeight - 24) {
-      wrap.scrollTop = row.offsetTop - wrap.clientHeight / 2;
-    }
+// Resalta la fila del fotograma actual y desplaza la tabla si se sale de la vista.
+let tableCurFrame = null;
+function highlightTableRow(force) {
+  if (!tableBody || (!force && tableCurFrame === S.frame)) return;
+  tableCurFrame = S.frame;
+  const prev = tableBody.querySelector('tr.cur');
+  if (prev) prev.classList.remove('cur');
+  const i = tableIndex.get(S.frame);
+  if (i === undefined) return;
+  if (!tableWrapH) measureTable();
+  if (!tableWrapH) return; // panel plegado
+  const top = tableHeadH + i * ROW_H;
+  if (top < tableScroll + tableHeadH || top + ROW_H > tableScroll + tableWrapH) {
+    tableScroll = Math.max(0, top - tableWrapH / 2);
+    tableWrap.scrollTop = tableScroll;
+    renderTableWindow();
   }
+  const row = tableBody.rows[i - tableFirst + (tableFirst ? 1 : 0)];
+  if (row && +row.dataset.f === S.frame) row.classList.add('cur');
 }
 
 /* ---------- sincronizar interfaz ---------- */
@@ -1202,7 +1414,7 @@ function syncFrameUI() {
   $('slider').value = S.frame;
   $('frameReadout').textContent = `fot. ${S.frame} / ${S.nFrames - 1}   t = ${fmt(timeOf(S.frame))} s`;
   highlightTableRow();
-  if (plotState) drawPlot();
+  drawPlot();
 }
 
 function syncCalibUI() {
@@ -1244,12 +1456,12 @@ function syncTracks() {
       // Sin reconstruir la lista, para no quitar el foco al campo del nombre.
       list.querySelectorAll('.track').forEach((el) => el.classList.toggle('sel', el === row));
       syncData();
-      render();
+      render(false);
     });
-    vis.addEventListener('change', () => { tr.visible = vis.checked; hist.commit(); render(); });
-    col.addEventListener('input', () => { tr.color = col.value; render(); drawPlot(); });
+    vis.addEventListener('change', () => { tr.visible = vis.checked; hist.commit(); render(false); });
+    col.addEventListener('input', () => { tr.color = col.value; touch(); render(false); drawPlot(); });
     col.addEventListener('change', () => hist.commit());
-    name.addEventListener('change', () => { tr.name = name.value.trim() || tr.name; hist.commit(); render(); drawPlot(); });
+    name.addEventListener('change', () => { tr.name = name.value.trim() || tr.name; hist.commit(); touch(); render(false); drawPlot(); });
     row.querySelector('button').addEventListener('click', async () => {
       const n = Object.keys(tr.points).length;
       if (n && !(await ask({
@@ -1275,10 +1487,12 @@ function syncAutoBtn() {
   b.classList.toggle('danger', S.auto);
 }
 
+// Tras cambiar datos: caducan las cachés, la gráfica se redibuja en el siguiente refresco
+// y la tabla cuando se deja de cambiar.
 function syncData() {
+  touch();
   drawPlot();
-  drawTable();
-  highlightTableRow();
+  scheduleTable();
   const tr = selTrack();
   const c = $('trackList').querySelector('.track.sel .count');
   if (tr && c) c.textContent = Object.keys(tr.points).length;
@@ -1288,6 +1502,7 @@ function syncAll() {
   syncInputs();
   syncTracks();
   syncData();
+  drawTable();
   syncFrameUI();
   render();
   hist.syncButtons();
@@ -1321,7 +1536,7 @@ const hist = {
     if (this.stack[this.pos] === s) return;
     this.stack = this.stack.slice(0, this.pos + 1);
     this.stack.push(s);
-    if (this.stack.length > 200) this.stack.shift();
+    if (this.stack.length > 100) this.stack.shift();
     this.pos = this.stack.length - 1;
     this.syncButtons();
     autosave(s);
@@ -1341,11 +1556,23 @@ const hist = {
 };
 
 const autosaveKey = () => S.file ? `track-it:${S.file.name}:${S.file.size}` : null;
+// Escritura agrupada: localStorage es síncrono y marcar seguido escribiría en cada clic.
+let pendingSave = null, saveTimer = 0;
 function autosave(s) {
   const k = autosaveKey();
   if (!k) return;
-  try { localStorage.setItem(k, s); } catch (e) { /* almacenamiento no disponible */ }
+  pendingSave = { k, s };
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flushSave, 400);
 }
+function flushSave() {
+  clearTimeout(saveTimer);
+  if (!pendingSave) return;
+  try { localStorage.setItem(pendingSave.k, pendingSave.s); } catch (e) { /* almacenamiento no disponible */ }
+  pendingSave = null;
+}
+window.addEventListener('pagehide', flushSave);
+document.addEventListener('visibilitychange', () => { if (document.hidden) flushSave(); });
 async function restoreAutosave() {
   const k = autosaveKey();
   let s = null;
@@ -1399,7 +1626,7 @@ function openProject(file) {
   file.text().then(async (txt) => {
     let d;
     try { d = JSON.parse(txt); } catch (e) { toast('El archivo no es un proyecto válido.'); return; }
-    if (d.app !== 'track-it') { toast('El archivo no es un proyecto de Track-it.'); return; }
+    if (d.app !== 'track-it') { toast('El archivo no es un proyecto de TrackIt.'); return; }
     if (!S.loaded) {
       // Se aplica en cuanto se abra el vídeo.
       pendingProject = d;
@@ -1481,11 +1708,11 @@ document.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click',
 function setTool(t) {
   S.tool = t;
   document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
-  view.style.cursor = t === 'mark' ? 'crosshair' : 'default';
+  setCursor(t === 'mark' ? 'crosshair' : 'default');
 }
 
 for (const [id, key] of [['showCalib', 'calib'], ['showAxes', 'axes'], ['showTrails', 'trails'], ['showSearch', 'search']]) {
-  $(id).addEventListener('change', (e) => { S.show[key] = e.target.checked; render(); });
+  $(id).addEventListener('change', (e) => { S.show[key] = e.target.checked; render(false); });
 }
 
 function numInput(id, fn) {
@@ -1514,7 +1741,7 @@ function fillVarSelect(sel, def) {
 fillVarSelect($('plotX'), 't');
 fillVarSelect($('plotY'), 'y');
 ['plotX', 'plotY', 'fitType'].forEach((id) => $(id).addEventListener('change', drawPlot));
-['tplSize', 'searchR'].forEach((id) => $(id).addEventListener('input', render));
+['tplSize', 'searchR'].forEach((id) => $(id).addEventListener('input', () => render(false)));
 
 document.addEventListener('keydown', (e) => {
   const tag = e.target.tagName;
@@ -1536,7 +1763,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === '?') $('help').showModal();
   else if (k === 'Delete' || k === 'Backspace') {
     const tr = selTrack();
-    if (tr && tr.points[S.frame]) { delete tr.points[S.frame]; hist.commit(); syncData(); render(); }
+    if (tr && tr.points[S.frame]) { delete tr.points[S.frame]; touch(); hist.commit(); syncData(); render(false); }
   } else if (k === 'Escape' && S.auto) S.auto = false;
 });
 
@@ -1564,13 +1791,14 @@ stage.addEventListener('drop', (e) => {
   else loadVideo(f);
 });
 
-window.addEventListener('resize', () => { resizeCanvas(); drawPlot(); });
+window.addEventListener('resize', () => { resizeCanvas(); drawPlot(); tableWrapH = 0; tableFirst = -1; renderTableWindow(); });
+// Al desplegar un panel plegado, la gráfica y la tabla se dibujan (plegadas no se dibujan).
+document.querySelectorAll('.panel').forEach((p) => p.addEventListener('toggle', () => { if (p.open) { drawPlot(); tableWrapH = 0; tableFirst = -1; renderTableWindow(); highlightTableRow(true); } }));
 window.addEventListener('beforeunload', (e) => {
   if (S.loaded && hist.pos > 0) { e.preventDefault(); e.returnValue = ''; }
 });
 
 resizeCanvas();
-drawTplPreview();
 syncTracks();
 drawPlot();
 drawTable();
