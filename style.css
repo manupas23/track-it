@@ -42,16 +42,16 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 
 .topbar {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 8px 14px; background: var(--surface-1); border-bottom: 1px solid var(--border);
+  min-height: 53px; padding: 0 16px; background: var(--surface-1); border-bottom: 1px solid var(--border);
 }
-.brand { font-weight: 700; font-size: 16px; display: flex; align-items: center; gap: 8px; letter-spacing: .2px; }
+.brand { font-weight: 700; font-size: 16px; line-height: 20px; display: flex; align-items: center; gap: 8px; letter-spacing: .2px; }
 .logo { width: 20px; height: 20px; color: var(--accent); flex: none; display: block; }
 .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; }
 
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border);
-  background: var(--surface-2); color: var(--text-primary); font: inherit; cursor: pointer; user-select: none;
+  background: var(--surface-2); color: var(--text-primary); font: inherit; cursor: pointer; user-select: none; line-height: 20px;
 }
 .btn:hover:not(:disabled) { border-color: var(--text-muted); }
 .btn:disabled { opacity: .45; cursor: default; }
@@ -92,28 +92,15 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 }
 
 .side { overflow-y: auto; background: var(--surface-1); border-left: 1px solid var(--border); }
-/* Cada panel tiene su color; el activo (el último que se ha tocado) lleva barra y fondo teñido. */
-.panel[data-p="video"] { --pc: #5598e7; }
-.panel[data-p="calib"] { --pc: #e0a526; }
-.panel[data-p="objs"]  { --pc: #2bbf8a; }
-.panel[data-p="plot"]  { --pc: #e06f98; }
-.panel[data-p="table"] { --pc: #e8763f; }
-@media (prefers-color-scheme: light) {
-  :root:not([data-theme="dark"]) .panel[data-p="video"] { --pc: #1c5cab; }
-  :root:not([data-theme="dark"]) .panel[data-p="calib"] { --pc: #8a5d00; }
-  :root:not([data-theme="dark"]) .panel[data-p="objs"]  { --pc: #0f7a54; }
-  :root:not([data-theme="dark"]) .panel[data-p="plot"]  { --pc: #b3366a; }
-  :root:not([data-theme="dark"]) .panel[data-p="table"] { --pc: #b4481c; }
-}
+/* El panel activo (el último que se ha tocado) se resalta en gris. */
 .panel {
   border-bottom: 1px solid var(--border); padding: 0 14px 0 11px;
   border-left: 3px solid transparent; transition: background-color .15s, border-color .15s;
 }
-.panel.active { border-left-color: var(--pc); background: color-mix(in srgb, var(--pc) 9%, var(--surface-1)); }
-.panel > summary { cursor: pointer; padding: 10px 0; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; color: var(--pc); }
+.panel.active { border-left-color: var(--text-muted); background: var(--surface-2); }
+.panel > summary { cursor: pointer; padding: 10px 0; font-weight: 600; list-style: none; display: flex; align-items: center; gap: 8px; color: var(--text-primary); }
 .panel > summary::-webkit-details-marker { display: none; }
-.panel > summary::before { content: "▸"; color: var(--pc); opacity: .7; transition: transform .15s; }
-.panel.active > summary::before { opacity: 1; }
+.panel > summary::before { content: "▸"; color: var(--text-muted); transition: transform .15s; }
 .panel[open] > summary::before { transform: rotate(90deg); }
 .panel > :last-child { margin-bottom: 12px; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; margin-bottom: 8px; }
