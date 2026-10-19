@@ -70,6 +70,7 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
 .transport input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
 .spacer { flex: 1; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+.seg.lang .seg-btn { padding: 5px 9px; font-size: 12.5px; font-weight: 600; }
 .seg-btn { border: 0; background: var(--surface-2); color: var(--text-secondary); padding: 5px 12px; font: inherit; cursor: pointer; }
 .seg-btn + .seg-btn { border-left: 1px solid var(--border); }
 .seg-btn.active { background: var(--accent); color: var(--accent-ink); }

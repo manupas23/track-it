@@ -143,16 +143,15 @@ function loadVideo(file) {
   S.auto = false;
   S.file = file;
   S.loaded = false;
-  busy('Cargando vídeo…');
+  busy(t('loading_video'));
   if (video.src) URL.revokeObjectURL(video.src);
   video.src = URL.createObjectURL(file);
   video.load();
 }
 
-const MEDIA_ERR = { 1: 'abortado', 2: 'red', 3: 'decodificación', 4: 'formato no soportado' };
 const errInfo = () => {
   const e = video.error;
-  return e ? `error de ${MEDIA_ERR[e.code] || e.code}${e.message ? `: ${e.message}` : ''}` : 'error desconocido';
+  return e ? t('err_of', { what: [1, 2, 3, 4].includes(e.code) ? t('media_' + e.code) : e.code }) + (e.message ? `: ${e.message}` : '') : t('err_unknown');
 };
 
 // Recuperación de errores a mitad de uso (un fotograma que el decodificador no digiere,
@@ -164,7 +163,7 @@ const recentErrors = [];
 video.addEventListener('error', () => {
   busy(null);
   if (!S.loaded && !recovery) {
-    toast(`El navegador no puede abrir este vídeo (${errInfo()}). Conviértelo a MP4 (H.264) o WebM y vuelve a probar.`, 8000);
+    toast(t('err_open', { info: errInfo() }), 8000);
     return;
   }
   const now = Date.now();
@@ -176,14 +175,14 @@ video.addEventListener('error', () => {
   if (recentErrors.length > 3) {
     recovery = null;
     S.loaded = true;
-    console.warn('TrackIt: el vídeo falla repetidamente', video.error);
-    toast(`El navegador no consigue decodificar este vídeo en el fotograma ${S.frame} (${errInfo()}). Prueba con otro navegador, desactiva la aceleración por hardware o conviértelo a MP4 (H.264). El análisis no se ha perdido.`, 12000);
+    console.warn('TrackIt: the video keeps failing', video.error);
+    toast(t('err_repeat', { frame: S.frame, info: errInfo() }), 12000);
     return;
   }
-  console.warn('TrackIt: error del vídeo, recargando', video.error);
+  console.warn('TrackIt: video error, reloading', video.error);
   recovery = { frame: S.frame };
   S.loaded = false;
-  busy('El vídeo ha fallado; recargando…');
+  busy(t('err_reloading'));
   video.load();
 });
 
@@ -194,7 +193,7 @@ video.addEventListener('loadedmetadata', async () => {
     S.loaded = true;
     await seekFrame(frame);
     busy(null);
-    toast(`El navegador tuvo un fallo al decodificar el vídeo y se ha recargado en el fotograma ${frame}. El análisis está intacto.`, 6000);
+    toast(t('err_recovered', { frame }), 6000);
     return;
   }
   S.W = video.videoWidth;
@@ -202,7 +201,7 @@ video.addEventListener('loadedmetadata', async () => {
   S.duration = video.duration;
   grab.width = S.W;
   grab.height = S.H;
-  busy('Detectando fps…');
+  busy(t('detecting_fps'));
   const fps = await detectFps();
   setFps(fps, true);
   S.frame = 0;
@@ -229,7 +228,7 @@ video.addEventListener('loadedmetadata', async () => {
       hist.reset();
       autosave(snapshot());
       resumeAtLast();
-      toast('Proyecto cargado: puedes seguir donde lo dejaste.');
+      toast(t('project_resumed'));
     }
   } else await restoreAutosave();
   syncAll();
@@ -359,7 +358,7 @@ function addTrack(select = true) {
   const id = nextTrackId++;
   const used = new Set(S.tracks.map((t) => t.color));
   const color = COLORS.find((c) => !used.has(c)) || COLORS[(id - 1) % COLORS.length];
-  const tr = { id, name: 'Objeto ' + id, color, visible: true, points: {} };
+  const tr = { id, name: t('track_name', { n: id }), color, visible: true, points: {} };
   S.tracks.push(tr);
   if (select || !S.sel) S.sel = id;
   return tr;
@@ -423,7 +422,7 @@ const VARS = [
   { k: 'ax', label: 'ax', u: () => unit() + '/s²' },
   { k: 'ay', label: 'ay', u: () => unit() + '/s²' },
   { k: 'a', label: '|a|', u: () => unit() + '/s²' },
-  { k: 'frame', label: 'fotograma', u: () => '' },
+  { k: 'frame', get label() { return t('var_frame'); }, u: () => '' },
 ];
 const varOf = (k) => VARS.find((v) => v.k === k);
 const varLabel = (k) => { const v = varOf(k); const u = v.u(); return u ? `${v.label} (${u})` : v.label; };
@@ -595,7 +594,7 @@ async function autotrack() {
   let start = S.frame;
   if (!tr.points[start]) {
     const before = sortedFrames(tr).filter((n) => n < S.frame && n >= S.range.start);
-    if (!before.length) { toast('Haz clic sobre el objeto con la herramienta Auto (A), o márcalo primero.'); return; }
+    if (!before.length) { toast(t('auto_need_point')); return; }
     start = before[before.length - 1];
   }
   if (S.playing) togglePlay();
@@ -607,8 +606,8 @@ async function autotrack() {
 
   await seekFrame(start);
   let tpl = extractTemplate(tr.points[start], size);
-  if (!tpl) { toast('El punto está demasiado cerca del borde para esa plantilla.'); return; }
-  if (tpl.norm < 1e-3 * size) { toast('La plantilla es uniforme (sin contraste): elige un punto con más detalle.'); return; }
+  if (!tpl) { toast(t('tpl_edge')); return; }
+  if (tpl.norm < 1e-3 * size) { toast(t('tpl_flat')); return; }
   const base = tpl;
 
   S.auto = true;
@@ -617,7 +616,7 @@ async function autotrack() {
   let prev = tr.points[start], prev2 = tr.points[start - k] || null;
   let count = 0, stopMsg = null;
   for (let n = start + k; n <= S.range.end; n += k) {
-    if (!S.auto) { stopMsg = 'Autotrack detenido.'; break; }
+    if (!S.auto) { stopMsg = t('auto_cancelled'); break; }
     const pred = prev2 ? { x: 2 * prev.x - prev2.x, y: 2 * prev.y - prev2.y } : prev;
     await seekFrame(n);
     let m = matchTemplate(tpl, pred, R);
@@ -632,7 +631,7 @@ async function autotrack() {
       if (m3 && (!m || m3.score > m.score)) m = m3;
     }
     if (!m || m.score < minScore) {
-      stopMsg = `Autotrack parado en el fotograma ${n}: coincidencia ${m ? m.score.toFixed(2) : '–'} < ${minScore}. Márcalo a mano y sigue.`;
+      stopMsg = t('auto_stopped', { frame: n, score: m ? m.score.toFixed(2) : '–', min: minScore });
       break;
     }
     setPoint(tr, n, m);
@@ -656,7 +655,7 @@ async function autotrack() {
   syncAutoBtn();
   hist.commit();
   syncAll();
-  toast(stopMsg ? `${stopMsg} (${count} puntos nuevos)` : `Autotrack terminado: ${count} puntos nuevos.`, stopMsg ? 6000 : 3200);
+  toast(stopMsg ? `${stopMsg} (${t('auto_new', { n: count })})` : t('auto_done', { pts: t('auto_new', { n: count }) }), stopMsg ? 6000 : 3200);
 }
 
 /* ---------- vista: zoom, desplazamiento y dibujo ---------- */
@@ -883,7 +882,7 @@ function drawSearchZone(ctx) {
     outlinedLine(ctx, [{ x: c.x - 4, y: c.y }, { x: c.x + 4, y: c.y }], tr.color, 1);
     outlinedLine(ctx, [{ x: c.x, y: c.y - 4 }, { x: c.x, y: c.y + 4 }], tr.color, 1);
   }
-  if (hs > 30) label(ctx, 'búsqueda', c.x - hs + 3, c.y - hs - 5, tr.color);
+  if (hs > 30) label(ctx, t('search_label'), c.x - hs + 3, c.y - hs - 5, tr.color);
 }
 
 // Vista ampliada de la plantilla en el panel de autotracking.
@@ -903,7 +902,7 @@ function drawTplPreview() {
     ctx.fillStyle = theme.muted;
     ctx.font = '11px system-ui, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('sin punto', cv.width / 2, cv.height / 2 + 4);
+    ctx.fillText(t('no_point'), cv.width / 2, cv.height / 2 + 4);
     ctx.textAlign = 'left';
     return;
   }
@@ -1212,7 +1211,7 @@ function buildPlotBase(ctx, W, H) {
   if (!pts.length) {
     ctx.fillStyle = muted;
     ctx.textAlign = 'center';
-    ctx.fillText(tr ? 'Sin datos todavía: marca puntos del objeto' : 'Crea un objeto', W / 2, H / 2);
+    ctx.fillText(t(tr ? 'plot_no_data' : 'plot_no_track'), W / 2, H / 2);
     ctx.textAlign = 'left';
     return;
   }
@@ -1285,7 +1284,7 @@ function buildPlotBase(ctx, W, H) {
   ctx.fillStyle = tr.color; ctx.fill();
   ctx.restore();
 
-  if (deg && !fit) $('fitOut').textContent = `Hacen falta al menos ${deg + 1} puntos para este ajuste.`;
+  if (deg && !fit) $('fitOut').textContent = t('fit_need', { n: deg + 1 });
   if (fit) {
     const names = ['', ' x', ' x²', ' x³'];
     const terms = fit.coef.map((c, k) => ({ c, k })).reverse();
@@ -1314,7 +1313,7 @@ function plotHover(e) {
   }
   if (!best) { tip.hidden = true; return null; }
   tip.hidden = false;
-  tip.innerHTML = `<b>Fotograma ${best.d.frame}</b><br>${varLabel(plotState.kx)}: ${fmt(best.x)}<br>${varLabel(plotState.ky)}: ${fmt(best.y)}`;
+  tip.innerHTML = `<b>${t('tip_frame', { frame: best.d.frame })}</b><br>${varLabel(plotState.kx)}: ${fmt(best.x)}<br>${varLabel(plotState.ky)}: ${fmt(best.y)}`;
   const px = plotState.X(best.x), py = plotState.Y(best.y);
   const tw = tip.offsetWidth;
   tip.style.left = clamp(px + 12 + tw > r.width ? px - tw - 12 : px + 12, 0, r.width - tw) + 'px';
@@ -1348,11 +1347,11 @@ function drawTable() {
   const key = `${dataVersion}|${S.sel}`;
   if (key === tableKey) return;
   tableKey = key;
-  const head = `<thead><tr>${TABLE_COLS.map((k) => `<th>${k === 'frame' ? 'fot.' : varLabel(k)}</th>`).join('')}</tr></thead>`;
+  const head = `<thead><tr>${TABLE_COLS.map((k) => `<th>${k === 'frame' ? t('table_frame') : varLabel(k)}</th>`).join('')}</tr></thead>`;
   tableData = tr ? trackRows(tr) : [];
   tableIndex = new Map(tableData.map((d, i) => [d.frame, i]));
   if (!tableData.length) {
-    tableEl.innerHTML = head + '<tbody><tr><td class="empty" colspan="8">Sin puntos</td></tr></tbody>';
+    tableEl.innerHTML = head + `<tbody><tr><td class="empty" colspan="8">${t('table_empty')}</td></tr></tbody>`;
     tableBody = null;
     return;
   }
@@ -1428,7 +1427,7 @@ function syncFrameUI() {
   if (!S.loaded) return;
   $('slider').max = S.nFrames - 1;
   $('slider').value = S.frame;
-  $('frameReadout').textContent = `fot. ${S.frame} / ${S.nFrames - 1}   t = ${fmt(timeOf(S.frame))} s`;
+  $('frameReadout').textContent = `${t('readout_frame', { frame: S.frame, last: S.nFrames - 1 })}   t = ${fmt(timeOf(S.frame))} s`;
   highlightTableRow();
   drawPlot();
 }
@@ -1459,11 +1458,11 @@ function syncTracks() {
   for (const tr of S.tracks) {
     const row = document.createElement('div');
     row.className = 'track' + (tr.id === S.sel ? ' sel' : '');
-    row.innerHTML = `<input type="checkbox" class="vis" title="Mostrar" ${tr.visible ? 'checked' : ''}>
-      <input type="color" value="${tr.color}" title="Color">
-      <input type="text" value="" aria-label="Nombre">
-      <span class="count" title="Puntos marcados">${Object.keys(tr.points).length}</span>
-      <button title="Borrar objeto">✕</button>`;
+    row.innerHTML = `<input type="checkbox" class="vis" title="${t('tr_show')}" ${tr.visible ? 'checked' : ''}>
+      <input type="color" value="${tr.color}" title="${t('tr_color')}">
+      <input type="text" value="" aria-label="${t('tr_name')}">
+      <span class="count" title="${t('tr_count')}">${Object.keys(tr.points).length}</span>
+      <button title="${t('tr_delete')}">✕</button>`;
     const [vis, col, name] = row.querySelectorAll('input');
     name.value = tr.name;
     row.addEventListener('click', (e) => {
@@ -1481,10 +1480,10 @@ function syncTracks() {
     row.querySelector('button').addEventListener('click', async () => {
       const n = Object.keys(tr.points).length;
       if (n && !(await ask({
-        title: `¿Borrar "${tr.name}"?`,
-        text: `Se borrarán sus ${n} ${n === 1 ? 'punto' : 'puntos'}.`,
-        detail: 'Puedes recuperarlo con Deshacer (Ctrl+Z).',
-        buttons: [{ label: 'Cancelar', value: false, focus: true }, { label: 'Borrar', value: true, kind: 'danger-fill' }],
+        title: t('del_title', { name: tr.name }),
+        text: t('del_text', { n }),
+        detail: t('del_detail'),
+        buttons: [{ label: t('cancel'), value: false, focus: true }, { label: t('delete'), value: true, kind: 'danger-fill' }],
       }))) return;
       S.tracks = S.tracks.filter((t) => t !== tr);
       if (S.sel === tr.id) S.sel = S.tracks.length ? S.tracks[0].id : null;
@@ -1499,7 +1498,7 @@ function syncTracks() {
 function syncAutoBtn() {
   const b = $('btnAuto');
   b.disabled = !S.loaded || !selTrack();
-  b.textContent = S.auto ? 'Detener autotrack' : 'Autotrack desde aquí';
+  b.textContent = t(S.auto ? 'btn_auto_stop' : 'btn_auto');
   b.classList.toggle('danger', S.auto);
 }
 
@@ -1600,10 +1599,10 @@ async function restoreAutosave() {
   const n = tracks.reduce((a, t) => a + Object.keys(t.points || {}).length, 0);
   if (!n) return;
   const ok = await ask({
-    title: '¿Seguir donde lo dejaste?',
-    text: `Hay un análisis guardado de este vídeo: ${tracks.length} ${tracks.length === 1 ? 'objeto' : 'objetos'} y ${n} puntos.`,
-    detail: 'Si empiezas de cero, el guardado anterior se sustituirá en cuanto marques algo.',
-    buttons: [{ label: 'Empezar de cero', value: false }, { label: 'Recuperar', value: true, kind: 'primary', focus: true }],
+    title: t('resume_title'),
+    text: t('resume_text', { t: tracks.length, n }),
+    detail: t('resume_detail'),
+    buttons: [{ label: t('start_fresh'), value: false }, { label: t('recover'), value: true, kind: 'primary', focus: true }],
   });
   if (ok) {
     applySnapshot(d);
@@ -1614,10 +1613,10 @@ async function restoreAutosave() {
 
 function askOtherVideo(name) {
   return ask({
-    title: 'El proyecto es de otro vídeo',
-    text: `Se guardó con "${name}" y tienes abierto "${S.file.name}".`,
-    detail: 'Si es el mismo vídeo con otro nombre, puedes cargarlo sin problema.',
-    buttons: [{ label: 'Cancelar', value: false }, { label: 'Cargar igualmente', value: true, kind: 'primary', focus: true }],
+    title: t('other_title'),
+    text: t('other_text', { saved: name, open: S.file.name }),
+    detail: t('other_detail'),
+    buttons: [{ label: t('cancel'), value: false }, { label: t('load_anyway'), value: true, kind: 'primary', focus: true }],
   });
 }
 
@@ -1641,32 +1640,32 @@ function saveProject() {
 function openProject(file) {
   file.text().then(async (txt) => {
     let d;
-    try { d = JSON.parse(txt); } catch (e) { toast('El archivo no es un proyecto válido.'); return; }
-    if (d.app !== 'track-it') { toast('El archivo no es un proyecto de TrackIt.'); return; }
+    try { d = JSON.parse(txt); } catch (e) { toast(t('proj_invalid')); return; }
+    if (d.app !== 'track-it') { toast(t('proj_not_trackit')); return; }
     if (!S.loaded) {
       // Se aplica en cuanto se abra el vídeo.
       pendingProject = d;
-      toast(`Proyecto listo. Ahora abre el vídeo${d.video && d.video.name ? ` "${d.video.name}"` : ''}.`, 6000);
+      toast(t('proj_ready', { name: d.video && d.video.name ? ` "${d.video.name}"` : '' }), 6000);
       return;
     }
     if (d.video && d.video.name && S.file && d.video.name !== S.file.name && !(await askOtherVideo(d.video.name))) return;
     applySnapshot(d);
     hist.commit();
     syncAll();
-    toast('Proyecto cargado.');
+    toast(t('proj_loaded'));
   });
 }
 
 async function exportCsv() {
-  if (!S.tracks.some((t) => Object.keys(t.points).length)) { toast('No hay puntos que exportar.'); return; }
+  if (!S.tracks.some((t) => Object.keys(t.points).length)) { toast(t('no_points_export')); return; }
   const fmtChoice = await ask({
-    title: 'Exportar CSV',
-    text: '¿Dónde vas a abrir los datos?',
-    detail: 'Excel en español usa ";" como separador y coma decimal. El estándar (Python, Origin, LibreOffice en inglés…) usa "," y punto decimal.',
+    title: t('csv_title'),
+    text: t('csv_text'),
+    detail: t('csv_detail'),
     buttons: [
-      { label: 'Cancelar', value: null },
-      { label: 'CSV estándar', value: 'std' },
-      { label: 'Excel en español', value: 'excel', kind: 'primary', focus: true },
+      { label: t('cancel'), value: null },
+      { label: t('csv_std'), value: 'std' },
+      { label: t('csv_excel'), value: 'excel', kind: 'primary', focus: true },
     ],
   });
   if (!fmtChoice) return;
@@ -1678,7 +1677,7 @@ async function exportCsv() {
     return excel ? s.replace('.', ',') : s;
   };
   const cols = ['frame', 't', 'x', 'y', 'r', 'vx', 'vy', 'v', 'ax', 'ay', 'a'];
-  const head = ['objeto', ...cols.map((k) => (k === 'frame' ? 'fotograma' : varLabel(k)))];
+  const head = [t('csv_object'), ...cols.map((k) => (k === 'frame' ? t('csv_frame') : varLabel(k)))];
   const lines = [head.join(sep)];
   for (const tr of S.tracks) {
     for (const d of trackRows(tr)) {
@@ -1686,7 +1685,7 @@ async function exportCsv() {
       lines.push([name, d.frame, ...cols.slice(1).map((k) => num(d[k]))].join(sep));
     }
   }
-  if (lines.length === 1) { toast('No hay puntos que exportar.'); return; }
+  if (lines.length === 1) { toast(t('no_points_export')); return; }
   download(baseName() + '.csv', '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
 }
 
@@ -1720,11 +1719,11 @@ $('slider').addEventListener('input', (e) => {
 // Que Espacio no vuelva a pulsar el último botón usado.
 document.addEventListener('click', (e) => { const b = e.target.closest('button, .seg-btn'); if (b) b.blur(); });
 
-document.querySelectorAll('.seg-btn').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
-function setTool(t) {
-  S.tool = t;
-  document.querySelectorAll('.seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
-  setCursor(t === 'move' ? 'default' : 'crosshair');
+document.querySelectorAll('.seg-btn[data-tool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.tool)));
+function setTool(tool) {
+  S.tool = tool;
+  document.querySelectorAll('.seg-btn[data-tool]').forEach((b) => b.classList.toggle('active', b.dataset.tool === tool));
+  setCursor(tool === 'move' ? 'default' : 'crosshair');
 }
 
 for (const [id, key] of [['showCalib', 'calib'], ['showAxes', 'axes'], ['showTrails', 'trails'], ['showSearch', 'search']]) {
@@ -1758,6 +1757,18 @@ fillVarSelect($('plotX'), 't');
 fillVarSelect($('plotY'), 'y');
 ['plotX', 'plotY', 'fitType'].forEach((id) => $(id).addEventListener('change', drawPlot));
 ['tplSize', 'searchR'].forEach((id) => $(id).addEventListener('input', () => render(false)));
+
+// Idioma: los textos fijos los cambia i18n.js; aquí se rehace lo que se genera en el código.
+document.querySelectorAll('.lang-btn').forEach((b) => b.addEventListener('click', () => setLang(b.dataset.lang)));
+document.addEventListener('langchange', () => {
+  fillVarSelect($('plotX'), $('plotX').value);
+  fillVarSelect($('plotY'), $('plotY').value);
+  previewKey = null;
+  syncAutoBtn();
+  if (S.loaded) syncAll();
+  else { syncTracks(); drawPlot(); tableKey = null; drawTable(); }
+  render(false);
+});
 
 document.addEventListener('keydown', (e) => {
   const tag = e.target.tagName;

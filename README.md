@@ -1,38 +1,39 @@
 # TrackIt
 
-Videoanálisis para física en el navegador, al estilo de [Tracker](https://physlets.org/tracker/): calibras la escala, colocas unos ejes, sigues objetos fotograma a fotograma (a mano o con autotracking) y obtienes posiciones, velocidades, aceleraciones, gráficas con ajuste de curvas y un CSV.
+Video analysis for physics in the browser, in the spirit of [Tracker](https://physlets.org/tracker/): calibrate the scale, place a set of axes, track objects frame by frame (by hand or automatically) and get positions, velocities, accelerations, plots with curve fitting and a CSV file.
 
-No hace falta instalar nada ni hay servidor: el vídeo se procesa en tu navegador y no se sube a ningún sitio.
+Nothing to install and no server: the video is processed in your browser and never uploaded anywhere. The interface is available in English and Spanish (ES/EN switch in the top bar).
 
-## Uso
+## Usage
 
-Abre `index.html` (o la versión publicada) en Chrome, Edge o Firefox.
+Open `index.html` (or the published version) in Chrome, Edge or Firefox.
 
-1. **Abre un vídeo** o arrástralo. Mejor MP4 (H.264) o WebM; los `.avi` o `.mov` HEVC suelen dar error en el navegador y hay que convertirlos antes.
-2. **Revisa los fps.** Se detectan solos. Si el vídeo es a cámara lenta, pon en *fps reales* los fps a los que se grabó (p. ej. 240) para que los tiempos sean los de verdad.
-3. **Calibra.** Arrastra los extremos de la vara azul sobre algo de longitud conocida y escribe su longitud y unidad.
-4. **Coloca los ejes.** Arrastra el origen (amarillo) y gíralos con el asa (con `Mayús`, de 15° en 15°).
-5. **Sigue el objeto.**
-   - A mano: herramienta *Marcar* (`M`) y clic sobre el objeto; avanza solo al siguiente paso. `Mayús`+clic marca con cualquier herramienta.
-   - Autotracking: con la herramienta *Auto* (`A`), haz clic sobre el objeto y se sigue solo desde ese fotograma. También puedes marcarlo y pulsar *Autotrack desde aquí*, que arranca en el último punto marcado. Busca en cada fotograma el recuadro de la plantilla que más se parece al de partida (correlación cruzada normalizada, con precisión de subpíxel). Si la coincidencia baja del umbral, se para: corrige a mano y vuelve a lanzarlo. Sobre el vídeo se ve la plantilla (recuadro sólido) y la zona de búsqueda del siguiente paso (discontinua, centrada donde se prevé el objeto según su velocidad); los dos se agrandan o encogen arrastrando sus esquinas. En el panel se ve la plantilla ampliada.
-   - La búsqueda es piramidal (primero con la imagen reducida y luego refinando hasta la resolución original), así que plantillas y radios grandes no la frenan. Si la coincidencia baja del umbral, antes de pararse busca en una zona tres veces mayor, lo que la salva en los botes.
-   - Para objetos rápidos y borrosos (una pelota que cae), activa *Plantilla evolutiva* y usa un radio de al menos la distancia que recorre entre fotogramas.
-6. **Analiza.** La gráfica deja elegir cualquier variable frente a otra y ajustar una recta, parábola o cúbica (con su $R^2$, ver [Ajuste de curvas](#ajuste-de-curvas)). Clic en un punto de la gráfica o en una fila de la tabla lleva a ese fotograma.
-7. **Exporta.** *Exportar CSV* saca todos los objetos (formato estándar o para Excel en español). *Guardar proyecto* guarda un `.trackit.json` con calibración, ejes y puntos para seguir otro día.
+1. **Open a video** or drop it onto the page. MP4 (H.264) or WebM work best; `.avi` files or HEVC-encoded `.mov` files often fail in browsers and need converting first.
+2. **Check the fps.** They are detected automatically. For slow-motion videos, enter the frame rate it was recorded at in *Real fps* (e.g. 240) so that times are correct.
+3. **Calibrate.** Drag the ends of the blue stick onto something of known length and type its length and unit.
+4. **Place the axes.** Drag the origin (yellow) and rotate the axes with the handle (hold `Shift` to snap to 15° steps).
+5. **Track the object.**
+   - Automatically: with the *Auto* tool (`A`), click on the object and it is followed from that frame on. You can also mark it and press *Autotrack from here*, which starts at the last marked point. In each frame it looks for the box that best matches the template (normalised cross-correlation, with sub-pixel precision). If the match drops below the threshold it stops: correct the point by hand and run it again.
+   - The template (solid box) and the search area for the next step (dashed box, centred where the object is expected from its velocity) are drawn on the video; drag their corners to resize them. The panel shows an enlarged view of the template.
+   - The search is pyramidal (first on a downscaled image, then refined up to full resolution), so large templates and search radii stay fast. Before stopping, it retries in an area three times larger, which keeps it on track through bounces.
+   - For fast, blurry objects (a falling ball), turn on *Evolving template* and use a radius at least as large as the distance travelled between frames.
+   - By hand: *Mark* tool (`M`) and click on the object; it moves on to the next step automatically. `Shift`+click marks with any tool.
+6. **Analyse.** Plot any variable against another and fit a straight line, a parabola or a cubic (with its $R^2$, see [Curve fitting](#curve-fitting)). Click a point on the plot or a row of the table to jump to that frame.
+7. **Export.** *Export CSV* writes all objects (standard format, or with `;` and a decimal comma for Excel in Spanish and other European locales). *Save project* saves a `.trackit.json` file with the calibration, axes and points so you can carry on later.
 
-**Seguir otro día.** El análisis se autoguarda en el navegador: al volver a abrir el mismo vídeo (mismo nombre y tamaño) pregunta si quieres recuperarlo y salta al último fotograma marcado. Para cambiar de ordenador o de navegador, usa *Guardar proyecto* y luego *Abrir proyecto*, antes o después de abrir el vídeo.
+**Carrying on later.** Your analysis is saved automatically in the browser: when you open the same video again (same name and size) it offers to restore it and jumps to the last marked frame. To move to another computer or browser, use *Save project* and then *Open project*, before or after opening the video.
 
-## Cálculos
+## Calculations
 
-### Escala y posición
+### Scale and position
 
-Un punto marcado tiene coordenadas de imagen $(u, v)$ en píxeles, con $v$ hacia abajo. La vara de calibración va de $(u_a, v_a)$ a $(u_b, v_b)$ y mide $L$ en la unidad elegida, así que la escala es
+A marked point has image coordinates $(u, v)$ in pixels, with $v$ pointing down. The calibration stick goes from $(u_a, v_a)$ to $(u_b, v_b)$ and is $L$ long in the chosen unit, so the scale is
 
 ```math
 k = \frac{L}{\sqrt{(u_b - u_a)^2 + (v_b - v_a)^2}}
 ```
 
-(sin calibración, $k = 1$ y todo sale en píxeles). Con el origen de los ejes en $(u_0, v_0)$ y los ejes girados un ángulo $\theta$ (en sentido antihorario), la posición en el sistema de ejes, con $y$ hacia arriba, es
+(without calibration, $k = 1$ and everything is in pixels). With the axes origin at $(u_0, v_0)$ and the axes rotated by an angle $\theta$ (counterclockwise), the position in the axes frame, with $y$ pointing up, is
 
 ```math
 \begin{aligned}
@@ -41,19 +42,19 @@ y &= k\,\big[-(u - u_0)\sin\theta - (v - v_0)\cos\theta\big]
 \end{aligned}
 ```
 
-### Tiempo
+### Time
 
-El fotograma $n$ corresponde al tiempo
+Frame $n$ corresponds to the time
 
 ```math
 t_n = \frac{n - n_0}{f_r}
 ```
 
-donde $n_0$ es el fotograma inicial del rango y $f_r$ son los *fps reales* (los de grabación, que en cámara lenta no coinciden con los del archivo).
+where $n_0$ is the first frame of the range and $f_r$ is the *real fps* (the recording frame rate, which differs from the file's in slow motion).
 
-### Velocidad y aceleración
+### Velocity and acceleration
 
-Se calculan por **diferencias centradas**: cada punto usa a su vecino anterior y al siguiente. Con $h_1 = t_i - t_{i-1}$ y $h_2 = t_{i+1} - t_i$ (pueden ser distintos si hay huecos):
+They are computed with **centred differences**: each point uses its previous and next neighbours. With $h_1 = t_i - t_{i-1}$ and $h_2 = t_{i+1} - t_i$ (which may differ if there are gaps):
 
 ```math
 v_{x,i} = \frac{x_{i+1} - x_{i-1}}{h_1 + h_2},
@@ -61,7 +62,7 @@ v_{x,i} = \frac{x_{i+1} - x_{i-1}}{h_1 + h_2},
 a_{x,i} = \frac{2}{h_1 + h_2}\left(\frac{x_{i+1} - x_i}{h_2} - \frac{x_i - x_{i-1}}{h_1}\right)
 ```
 
-y lo mismo para $y$. Con paso constante $h_1 = h_2 = \Delta t$ se reducen a las fórmulas habituales
+and likewise for $y$. With a constant step $h_1 = h_2 = \Delta t$ they reduce to the usual formulas
 
 ```math
 v_{x,i} = \frac{x_{i+1} - x_{i-1}}{2\,\Delta t},
@@ -69,7 +70,7 @@ v_{x,i} = \frac{x_{i+1} - x_{i-1}}{2\,\Delta t},
 a_{x,i} = \frac{x_{i+1} - 2x_i + x_{i-1}}{\Delta t^2}
 ```
 
-Los módulos son
+The magnitudes are
 
 ```math
 |v| = \sqrt{v_x^2 + v_y^2},
@@ -77,56 +78,44 @@ Los módulos son
 |a| = \sqrt{a_x^2 + a_y^2}
 ```
 
-El primer y el último punto no tienen velocidad ni aceleración, porque les falta un vecino.
+The first and last points have no velocity or acceleration, because they lack a neighbour.
 
 ### Autotracking
 
-La plantilla $T$ es el recuadro de imagen (en escala de grises) alrededor del punto marcado. En cada posición candidata $(p, q)$ de la zona de búsqueda se compara con el recuadro $I$ del mismo tamaño mediante la **correlación cruzada normalizada**:
+The template $T$ is the (greyscale) image box around the marked point. At each candidate position $(p, q)$ in the search area it is compared with the box $I$ of the same size using the **normalised cross-correlation**:
 
 ```math
 r(p, q) = \frac{\sum_{j} \big(T_j - \bar T\big)\big(I_j - \bar I\big)}{\sqrt{\sum_{j} \big(T_j - \bar T\big)^2 \; \sum_{j} \big(I_j - \bar I\big)^2}}
 ```
 
-donde la suma recorre los píxeles $j$ del recuadro y $\bar T$, $\bar I$ son sus valores medios. Vale $1$ si los dos recuadros son iguales salvo brillo y contraste, y es lo que se compara con el *umbral*. Se elige la posición con mayor $r$ y se afina por debajo del píxel ajustando una parábola a $r$ y sus dos vecinos en cada eje:
+where the sums run over the pixels $j$ of the box and $\bar T$, $\bar I$ are their mean values. It equals $1$ when both boxes are identical up to brightness and contrast, and it is what gets compared with the *threshold*. The position with the highest $r$ is chosen and refined below one pixel by fitting a parabola to $r$ and its two neighbours along each axis:
 
 ```math
 \delta = \frac{r_{-1} - r_{+1}}{2\,\big(r_{-1} - 2r_0 + r_{+1}\big)}
 ```
 
-La zona de búsqueda se centra donde estaría el objeto si siguiera a velocidad constante, $\hat{\mathbf p}_{n+1} = 2\,\mathbf p_n - \mathbf p_{n-1}$.
+The search area is centred where the object would be if it kept a constant velocity, $\hat{\mathbf p}_{n+1} = 2\,\mathbf p_n - \mathbf p_{n-1}$.
 
-### Ajuste de curvas
+### Curve fitting
 
-El ajuste es por mínimos cuadrados: busca los coeficientes del polinomio $\hat y(x)$ que minimizan $\sum_i \big(y_i - \hat y(x_i)\big)^2$. La calidad se mide con el coeficiente de determinación
+Fits use least squares: they find the coefficients of the polynomial $\hat y(x)$ that minimise $\sum_i \big(y_i - \hat y(x_i)\big)^2$. The quality of the fit is given by the coefficient of determination
 
 ```math
 R^2 = 1 - \frac{\sum_i \big(y_i - \hat y_i\big)^2}{\sum_i \big(y_i - \bar y\big)^2}
 ```
 
-que vale $1$ si la curva pasa exactamente por todos los puntos. En un ajuste parabólico de la altura frente al tiempo, $y = A t^2 + B t + C$, la aceleración es $2A$: para una caída libre con el eje $y$ hacia arriba, $g = -2A$.
+which equals $1$ when the curve goes exactly through every point. In a quadratic fit of height against time, $y = A t^2 + B t + C$, the acceleration is $2A$: for free fall with the $y$ axis pointing up, $g = -2A$.
 
-## Atajos
+## Shortcuts
 
-| Tecla | Acción |
+| Key | Action |
 |---|---|
-| `←` `→` | Paso anterior / siguiente (`Mayús`: de 10 en 10) |
-| `Inicio` `Fin` | Principio / final del rango |
-| `Espacio` | Reproducir / pausar |
-| `A` / `M` / `V` | Herramienta Auto / Marcar / Mover |
-| `Supr` | Borrar el punto del fotograma actual |
-| `Ctrl+Z` / `Ctrl+Y` | Deshacer / rehacer |
-| Rueda | Zoom; arrastrar con botón derecho o central para desplazar |
-| `F` | Ajustar el vídeo a la ventana |
-| `Esc` | Detener el autotracking |
-
-## Rendimiento
-
-- El vídeo y las marcas van en dos lienzos superpuestos: pasar el ratón, arrastrar o marcar solo repinta las marcas.
-- Todo el dibujo se agrupa en, como mucho, un repintado por refresco de pantalla; al reproducir se pinta solo cuando el vídeo presenta un fotograma nuevo (`requestVideoFrameCallback`).
-- Filas de datos, gráfica y tabla se recalculan solo cuando cambian los datos. La gráfica guarda su base en caché y por fotograma solo mueve el punto actual.
-- La tabla está virtualizada: solo existen en la página las filas visibles, así que pesa lo mismo con 300 puntos que con 30 000.
-- El autoguardado se agrupa (como mucho cada 0,4 s) y el historial de deshacer guarda 100 pasos.
-
-## Código
-
-HTML, CSS y JavaScript sin dependencias ni compilación: `index.html`, `style.css` y `app.js`. Para publicarlo vale cualquier hosting estático (Vercel, GitHub Pages…).
+| `←` `→` | Previous / next step (`Shift`: 10 at a time) |
+| `Home` `End` | Start / end of range |
+| `Space` | Play / pause |
+| `A` / `M` / `V` | Auto / Mark / Move tool |
+| `Del` | Delete the point on the current frame |
+| `Ctrl+Z` / `Ctrl+Y` | Undo / redo |
+| Wheel | Zoom; drag with the right or middle button to pan |
+| `F` | Fit the video to the window |
+| `Esc` | Stop autotracking |
