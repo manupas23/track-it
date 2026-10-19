@@ -125,6 +125,8 @@ const timeOf = (n) => (n - S.range.start) / S.fpsReal;
 
 function loadVideo(file) {
   if (S.playing) togglePlay();
+  recovery = null;
+  recentErrors.length = 0;
   S.auto = false;
   S.file = file;
   S.loaded = false;
@@ -134,12 +136,54 @@ function loadVideo(file) {
   video.load();
 }
 
+const MEDIA_ERR = { 1: 'abortado', 2: 'red', 3: 'decodificación', 4: 'formato no soportado' };
+const errInfo = () => {
+  const e = video.error;
+  return e ? `error de ${MEDIA_ERR[e.code] || e.code}${e.message ? `: ${e.message}` : ''}` : 'error desconocido';
+};
+
+// Recuperación de errores a mitad de uso (un fotograma que el decodificador no digiere,
+// fallo del driver gráfico…): se recarga el mismo archivo y se vuelve al fotograma, sin
+// tocar el análisis.
+let recovery = null;
+const recentErrors = [];
+
 video.addEventListener('error', () => {
   busy(null);
-  toast('El navegador no puede abrir este vídeo. Conviértelo a MP4 (H.264) o WebM y vuelve a probar.', 7000);
+  if (!S.loaded && !recovery) {
+    toast(`El navegador no puede abrir este vídeo (${errInfo()}). Conviértelo a MP4 (H.264) o WebM y vuelve a probar.`, 8000);
+    return;
+  }
+  const now = Date.now();
+  recentErrors.push(now);
+  while (recentErrors.length && now - recentErrors[0] > 20000) recentErrors.shift();
+  S.playing = false;
+  S.auto = false;
+  $('btnPlay').textContent = '▶';
+  if (recentErrors.length > 3) {
+    recovery = null;
+    S.loaded = true;
+    console.warn('Track-it: el vídeo falla repetidamente', video.error);
+    toast(`El navegador no consigue decodificar este vídeo en el fotograma ${S.frame} (${errInfo()}). Prueba con otro navegador, desactiva la aceleración por hardware o conviértelo a MP4 (H.264). El análisis no se ha perdido.`, 12000);
+    return;
+  }
+  console.warn('Track-it: error del vídeo, recargando', video.error);
+  recovery = { frame: S.frame };
+  S.loaded = false;
+  busy('El vídeo ha fallado; recargando…');
+  video.load();
 });
 
 video.addEventListener('loadedmetadata', async () => {
+  if (recovery) {
+    const { frame } = recovery;
+    recovery = null;
+    S.loaded = true;
+    await seekFrame(frame);
+    busy(null);
+    toast(`El navegador tuvo un fallo al decodificar el vídeo y se ha recargado en el fotograma ${frame}. El análisis está intacto.`, 6000);
+    return;
+  }
   S.W = video.videoWidth;
   S.H = video.videoHeight;
   S.duration = video.duration;
