@@ -32,6 +32,7 @@ const S = {
 };
 
 let nextTrackId = 1;
+let pendingProject = null;
 
 /* ---------- utilidades ---------- */
 
@@ -122,7 +123,18 @@ video.addEventListener('loadedmetadata', async () => {
   await seekFrame(0);
   busy(null);
   hist.reset();
-  restoreAutosave();
+  if (pendingProject) {
+    const d = pendingProject;
+    pendingProject = null;
+    if (!(d.video && d.video.name && d.video.name !== S.file.name) ||
+        confirm(`El proyecto es del vídeo "${d.video.name}" y has abierto "${S.file.name}". ¿Cargarlo igualmente?`)) {
+      applySnapshot(d);
+      hist.reset();
+      autosave(snapshot());
+      resumeAtLast();
+      toast('Proyecto cargado: puedes seguir donde lo dejaste.');
+    }
+  } else restoreAutosave();
   syncAll();
 });
 
@@ -1061,6 +1073,7 @@ function restoreAutosave() {
     if (n && confirm(`Hay un análisis guardado de este vídeo (${n} puntos). ¿Recuperarlo?`)) {
       applySnapshot(d);
       hist.reset();
+      resumeAtLast();
     }
   } catch (e) { /* guardado corrupto: se ignora */ }
 }
@@ -1087,7 +1100,12 @@ function openProject(file) {
     let d;
     try { d = JSON.parse(txt); } catch (e) { toast('El archivo no es un proyecto válido.'); return; }
     if (d.app !== 'track-it') { toast('El archivo no es un proyecto de Track-it.'); return; }
-    if (!S.loaded) { toast(`Abre primero el vídeo${d.video && d.video.name ? ` (${d.video.name})` : ''} y luego el proyecto.`, 5000); return; }
+    if (!S.loaded) {
+      // Se aplica en cuanto se abra el vídeo.
+      pendingProject = d;
+      toast(`Proyecto listo. Ahora abre el vídeo${d.video && d.video.name ? ` "${d.video.name}"` : ''}.`, 6000);
+      return;
+    }
     if (d.video && d.video.name && S.file && d.video.name !== S.file.name &&
         !confirm(`El proyecto es del vídeo "${d.video.name}" y tienes abierto "${S.file.name}". ¿Cargarlo igualmente?`)) return;
     applySnapshot(d);
@@ -1210,6 +1228,16 @@ document.addEventListener('keydown', (e) => {
   } else if (k === 'Escape' && S.auto) S.auto = false;
 });
 
+// Panel activo: el último en el que se ha hecho clic o se ha entrado con el teclado.
+function setActivePanel(p) {
+  document.querySelectorAll('.panel').forEach((el) => el.classList.toggle('active', el === p));
+}
+document.querySelectorAll('.panel').forEach((p) => {
+  p.addEventListener('pointerdown', () => setActivePanel(p));
+  p.addEventListener('focusin', () => setActivePanel(p));
+});
+setActivePanel(document.querySelector('.panel'));
+
 // Arrastrar y soltar vídeos o proyectos.
 const stage = $('stage');
 stage.addEventListener('dragover', (e) => { e.preventDefault(); $('dropHint').classList.add('over'); $('dropHint').hidden = false; });
@@ -1236,3 +1264,10 @@ drawTable();
 
 // Para pruebas automáticas.
 window.trackit = { S, seekFrame, autotrack, trackRows, polyfit, addTrack, setPoint, hist, syncAll };
+
+// Al recuperar un análisis, ir al último fotograma marcado del objeto seleccionado.
+function resumeAtLast() {
+  const tr = selTrack();
+  const fr = tr ? sortedFrames(tr) : [];
+  if (fr.length) seekFrame(fr[fr.length - 1]);
+}

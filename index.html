@@ -10,7 +10,7 @@
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><span class="logo"></span>Track-it</div>
+  <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12.5" fill="none" stroke="currentColor" stroke-width="4"/><circle cx="16" cy="16" r="5" fill="#d95926"/></svg>Track-it</div>
   <div class="actions">
     <label class="btn primary">Abrir vídeo<input id="fileVideo" type="file" accept="video/*" hidden></label>
     <label class="btn">Abrir proyecto<input id="fileProject" type="file" accept=".json,application/json" hidden></label>
@@ -62,7 +62,7 @@
   </section>
 
   <aside class="side">
-    <details class="panel" open>
+    <details class="panel" data-p="video" open>
       <summary>Vídeo y tiempo</summary>
       <div class="grid2">
         <label>fps del archivo<input type="number" id="fps" min="1" max="1000" step="0.001"></label>
@@ -75,7 +75,7 @@
       <p class="hint">El tiempo <code>t = 0</code> es el fotograma inicial. Los fps se detectan solos; si no cuadran, corrígelos.</p>
     </details>
 
-    <details class="panel" open>
+    <details class="panel" data-p="calib" open>
       <summary>Calibración y ejes</summary>
       <div class="grid2">
         <label>Longitud de la vara<input type="number" id="calibLen" min="0" step="any" value="1"></label>
@@ -87,7 +87,7 @@
       <p class="hint">Arrastra los extremos de la vara azul sobre algo de longitud conocida. Arrastra el origen de los ejes y su asa para girarlos.</p>
     </details>
 
-    <details class="panel" open>
+    <details class="panel" data-p="objs" open>
       <summary>Objetos</summary>
       <div id="trackList" class="tracklist"></div>
       <button class="btn small" id="btnAddTrack">+ Nuevo objeto</button>
@@ -104,7 +104,7 @@
       </div>
     </details>
 
-    <details class="panel" open>
+    <details class="panel" data-p="plot" open>
       <summary>Gráfica</summary>
       <div class="plotctl">
         <select id="plotY" aria-label="Eje vertical"></select>
@@ -124,7 +124,7 @@
       <div class="fitout" id="fitOut"></div>
     </details>
 
-    <details class="panel" open>
+    <details class="panel" data-p="table" open>
       <summary>Tabla</summary>
       <div class="tablewrap"><table id="dataTable"></table></div>
     </details>

@@ -18,7 +18,7 @@ Abre `index.html` (o la versión publicada) en Chrome, Edge o Firefox.
 6. **Analiza.** La gráfica deja elegir cualquier variable frente a otra y ajustar una recta, parábola o cúbica (con `R²`). Clic en un punto de la gráfica o en una fila de la tabla lleva a ese fotograma.
 7. **Exporta.** *Exportar CSV* saca todos los objetos (formato estándar o para Excel en español). *Guardar proyecto* guarda un `.trackit.json` con calibración, ejes y puntos para seguir otro día.
 
-El análisis también se autoguarda en el navegador, ligado al nombre y tamaño del vídeo.
+**Seguir otro día.** El análisis se autoguarda en el navegador: al volver a abrir el mismo vídeo (mismo nombre y tamaño) pregunta si quieres recuperarlo y salta al último fotograma marcado. Para cambiar de ordenador o de navegador, usa *Guardar proyecto* y luego *Abrir proyecto*, antes o después de abrir el vídeo.
 
 ## Cálculos
 
