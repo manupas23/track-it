@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Track-it</title>
 <meta name="description" content="Videoanálisis para física: calibra, sigue objetos fotograma a fotograma y obtén posiciones, velocidades y aceleraciones.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%233987e5' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%23d95926'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M3 28Q14-4 29 24' fill='none' stroke='%233987e5' stroke-width='2.4' stroke-linecap='round' stroke-dasharray='0.1 3.6'/><circle cx='6.4' cy='19.8' r='2.6' fill='%233987e5'/><circle cx='12.4' cy='12' r='2.6' fill='%233987e5'/><circle cx='19' cy='11.8' r='2.6' fill='%233987e5'/><circle cx='25.5' cy='18.1' r='4.8' fill='none' stroke='%23e8763f' stroke-width='2.6'/><circle cx='25.5' cy='18.1' r='1.6' fill='%23e8763f'/></svg>">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="12.5" fill="none" stroke="currentColor" stroke-width="4"/><circle cx="16" cy="16" r="5" fill="#d95926"/></svg>Track-it</div>
+  <div class="brand"><svg class="logo" viewBox="0 0 32 32" aria-hidden="true"><path d="M3 28Q14-4 29 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="0.1 3.6" opacity=".75"/><circle cx="6.4" cy="19.8" r="2.3" fill="currentColor"/><circle cx="12.4" cy="12" r="2.3" fill="currentColor"/><circle cx="19" cy="11.8" r="2.3" fill="currentColor"/><circle cx="25.5" cy="18.1" r="4.6" fill="none" stroke="#e8763f" stroke-width="2.2"/><circle cx="25.5" cy="18.1" r="1.5" fill="#e8763f"/></svg>Track-it</div>
   <div class="actions">
     <label class="btn primary">Abrir vídeo<input id="fileVideo" type="file" accept="video/*" hidden></label>
     <label class="btn">Abrir proyecto<input id="fileProject" type="file" accept=".json,application/json" hidden></label>
@@ -32,6 +32,7 @@
       <label class="chk"><input type="checkbox" id="showCalib" checked> Vara</label>
       <label class="chk"><input type="checkbox" id="showAxes" checked> Ejes</label>
       <label class="chk"><input type="checkbox" id="showTrails" checked> Trayectorias</label>
+      <label class="chk" title="Plantilla y zona de búsqueda del autotracking sobre el objeto seleccionado"><input type="checkbox" id="showSearch" checked> Búsqueda</label>
       <span class="spacer"></span>
       <span class="readout" id="cursorReadout"></span>
       <button class="btn small" id="btnFit" title="Ajustar a la ventana (F)">Ajustar</button>
@@ -98,6 +99,10 @@
           <label title="Cuánto se puede mover el objeto entre pasos (px)">Radio de búsqueda<input type="number" id="searchR" min="3" max="300" step="1" value="30"></label>
           <label title="Correlación mínima (0 a 1). Por debajo se detiene">Umbral<input type="number" id="matchMin" min="0" max="1" step="0.05" value="0.7"></label>
           <label class="chk inline" title="La plantilla se va actualizando: ayuda si el objeto cambia de aspecto, pero puede derivar"><input type="checkbox" id="tplEvolve"> Plantilla evolutiva</label>
+        </div>
+        <div class="tplrow">
+          <canvas id="tplPreview" width="72" height="72" title="Plantilla: lo que se va a buscar"></canvas>
+          <p class="hint">Esto es lo que se busca. En el vídeo, el recuadro sólido es la plantilla y el discontinuo, la zona donde se buscará en el siguiente paso.</p>
         </div>
         <button class="btn primary small" id="btnAuto" disabled>Autotrack desde aquí</button>
         <p class="hint">Marca el objeto en un fotograma y pulsa el botón: lo busca en los siguientes.</p>

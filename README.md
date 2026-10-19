@@ -14,7 +14,7 @@ Abre `index.html` (o la versión publicada) en Chrome, Edge o Firefox.
 4. **Coloca los ejes.** Arrastra el origen (amarillo) y gíralos con el asa (con `Mayús`, de 15° en 15°).
 5. **Sigue el objeto.**
    - A mano: herramienta *Marcar* (`M`) y clic sobre el objeto; avanza solo al siguiente paso. `Mayús`+clic marca con cualquier herramienta.
-   - Autotracking: márcalo en un fotograma y pulsa *Autotrack desde aquí*. Busca en cada fotograma el recuadro de la plantilla que más se parece al de partida (correlación cruzada normalizada, con precisión de subpíxel). Si la coincidencia baja del umbral, se para: corrige a mano y vuelve a lanzarlo.
+   - Autotracking: márcalo en un fotograma y pulsa *Autotrack desde aquí*. Busca en cada fotograma el recuadro de la plantilla que más se parece al de partida (correlación cruzada normalizada, con precisión de subpíxel). Si la coincidencia baja del umbral, se para: corrige a mano y vuelve a lanzarlo. Sobre el vídeo se ve la plantilla (recuadro sólido) y la zona de búsqueda del siguiente paso (discontinua, centrada donde se prevé el objeto según su velocidad), y en el panel, la plantilla ampliada.
 6. **Analiza.** La gráfica deja elegir cualquier variable frente a otra y ajustar una recta, parábola o cúbica (con `R²`). Clic en un punto de la gráfica o en una fila de la tabla lleva a ese fotograma.
 7. **Exporta.** *Exportar CSV* saca todos los objetos (formato estándar o para Excel en español). *Guardar proyecto* guarda un `.trackit.json` con calibración, ejes y puntos para seguir otro día.
 

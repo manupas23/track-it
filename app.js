@@ -25,7 +25,7 @@ const S = {
   tracks: [],
   sel: null,
   tool: 'move',
-  show: { calib: true, axes: true, trails: true },
+  show: { calib: true, axes: true, trails: true, search: true },
   view: { s: 1, tx: 0, ty: 0 },
   playing: false,
   auto: false,
@@ -490,6 +490,7 @@ function render() {
   if (S.show.axes) drawAxes(ctx);
   if (S.show.calib) drawCalib(ctx);
   for (const tr of S.tracks) if (tr.visible) drawTrack(ctx, tr);
+  drawTplPreview();
 }
 
 function outlinedLine(ctx, pts, color, w) {
@@ -574,14 +575,70 @@ function drawTrack(ctx, tr) {
     ctx.beginPath(); ctx.arc(p.x, p.y, 7, 0, 7); ctx.stroke();
     outlinedLine(ctx, [{ x: p.x - 3, y: p.y }, { x: p.x + 3, y: p.y }], tr.color, 1);
     outlinedLine(ctx, [{ x: p.x, y: p.y - 3 }, { x: p.x, y: p.y + 3 }], tr.color, 1);
-    if (isSel && S.auto) {
-      const h = (parseInt($('tplSize').value, 10) || 21) / 2 * S.view.s;
-      ctx.strokeStyle = tr.color; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-      ctx.strokeRect(p.x - h, p.y - h, 2 * h, 2 * h);
-      ctx.setLineDash([]);
-    }
+    if (isSel && S.show.search && !S.playing) drawSearchZone(ctx, tr, cur);
     label(ctx, tr.name, p.x + 11, p.y - 9, tr.color);
   }
+}
+
+function tplParams() {
+  let size = parseInt($('tplSize').value, 10) || 21;
+  if (size % 2 === 0) size++;
+  return { size, R: parseInt($('searchR').value, 10) || 30 };
+}
+
+// Plantilla (sólida) sobre el punto y zona de búsqueda (discontinua) centrada en la
+// posición prevista para el siguiente paso, igual que la usa el autotracking.
+function drawSearchZone(ctx, tr, cur) {
+  const { size, R } = tplParams();
+  const s = S.view.s;
+  const before = tr.points[S.frame - S.range.step];
+  const pred = before ? { x: 2 * cur.x - before.x, y: 2 * cur.y - before.y } : cur;
+  const p = toScreen({ x: Math.round(cur.x), y: Math.round(cur.y) });
+  const c = toScreen({ x: Math.round(pred.x), y: Math.round(pred.y) });
+  const ht = (size / 2) * s, hs = (R + size / 2) * s;
+
+  const box = (x, y, h, dash, w) => {
+    ctx.setLineDash(dash);
+    ctx.strokeStyle = 'rgba(0,0,0,.7)'; ctx.lineWidth = w + 2;
+    ctx.strokeRect(x - h, y - h, 2 * h, 2 * h);
+    ctx.strokeStyle = tr.color; ctx.lineWidth = w;
+    ctx.strokeRect(x - h, y - h, 2 * h, 2 * h);
+    ctx.setLineDash([]);
+  };
+  box(c.x, c.y, hs, [6, 4], 1.2);
+  box(p.x, p.y, ht, [], 1.5);
+  if (before && dist(p, c) > 3) {
+    ctx.setLineDash([2, 3]);
+    outlinedLine(ctx, [p, c], tr.color, 1);
+    ctx.setLineDash([]);
+    outlinedLine(ctx, [{ x: c.x - 4, y: c.y }, { x: c.x + 4, y: c.y }], tr.color, 1);
+    outlinedLine(ctx, [{ x: c.x, y: c.y - 4 }, { x: c.x, y: c.y + 4 }], tr.color, 1);
+  }
+  if (hs > 30) label(ctx, 'búsqueda', c.x - hs + 3, c.y - hs - 5, tr.color);
+}
+
+// Vista ampliada de la plantilla en el panel de autotracking.
+function drawTplPreview() {
+  const cv = $('tplPreview');
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, cv.width, cv.height);
+  const tr = selTrack();
+  const cur = tr && tr.points[S.frame];
+  if (!S.loaded || !cur) {
+    ctx.fillStyle = cssVar('--text-muted');
+    ctx.font = '11px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('sin punto', cv.width / 2, cv.height / 2 + 4);
+    ctx.textAlign = 'left';
+    return;
+  }
+  const { size } = tplParams();
+  const h = (size - 1) / 2;
+  ctx.imageSmoothingEnabled = false;
+  try { ctx.drawImage(video, Math.round(cur.x) - h, Math.round(cur.y) - h, size, size, 0, 0, cv.width, cv.height); } catch (e) { /* sin fotograma */ }
+  const m = cv.width / 2;
+  ctx.strokeStyle = tr.color; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(m - 6, m + 0.5); ctx.lineTo(m + 6, m + 0.5); ctx.moveTo(m + 0.5, m - 6); ctx.lineTo(m + 0.5, m + 6); ctx.stroke();
 }
 
 /* ---------- ratón sobre el vídeo ---------- */
@@ -1173,7 +1230,7 @@ function setTool(t) {
   view.style.cursor = t === 'mark' ? 'crosshair' : 'default';
 }
 
-for (const [id, key] of [['showCalib', 'calib'], ['showAxes', 'axes'], ['showTrails', 'trails']]) {
+for (const [id, key] of [['showCalib', 'calib'], ['showAxes', 'axes'], ['showTrails', 'trails'], ['showSearch', 'search']]) {
   $(id).addEventListener('change', (e) => { S.show[key] = e.target.checked; render(); });
 }
 
@@ -1203,6 +1260,7 @@ function fillVarSelect(sel, def) {
 fillVarSelect($('plotX'), 't');
 fillVarSelect($('plotY'), 'y');
 ['plotX', 'plotY', 'fitType'].forEach((id) => $(id).addEventListener('change', drawPlot));
+['tplSize', 'searchR'].forEach((id) => $(id).addEventListener('input', render));
 
 document.addEventListener('keydown', (e) => {
   const tag = e.target.tagName;
@@ -1258,6 +1316,7 @@ window.addEventListener('beforeunload', (e) => {
 });
 
 resizeCanvas();
+drawTplPreview();
 syncTracks();
 drawPlot();
 drawTable();
