@@ -163,6 +163,7 @@ video.addEventListener('loadedmetadata', async () => {
   await seekFrame(0);
   busy(null);
   hist.reset();
+  syncAll(); // que la interfaz esté completa mientras se pregunta si recuperar
   if (pendingProject) {
     const d = pendingProject;
     pendingProject = null;
