@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track-it</title>
+<meta name="description" content="Videoanálisis para física: calibra, sigue objetos fotograma a fotograma y obtén posiciones, velocidades y aceleraciones.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='none' stroke='%233987e5' stroke-width='3'/><circle cx='16' cy='16' r='4' fill='%23d95926'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo"></span>Track-it</div>
+  <div class="actions">
+    <label class="btn primary">Abrir vídeo<input id="fileVideo" type="file" accept="video/*" hidden></label>
+    <label class="btn">Abrir proyecto<input id="fileProject" type="file" accept=".json,application/json" hidden></label>
+    <button class="btn" id="btnSaveProject" disabled>Guardar proyecto</button>
+    <button class="btn" id="btnCsv" disabled>Exportar CSV</button>
+    <button class="btn icon" id="btnUndo" title="Deshacer (Ctrl+Z)" disabled>↶</button>
+    <button class="btn icon" id="btnRedo" title="Rehacer (Ctrl+Y)" disabled>↷</button>
+    <button class="btn icon" id="btnHelp" title="Ayuda (?)">?</button>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="viewer">
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Herramienta">
+        <button class="seg-btn active" data-tool="move" title="Mover y editar (V)">Mover</button>
+        <button class="seg-btn" data-tool="mark" title="Marcar puntos (M). Con Mayús+clic marcas en cualquier modo">Marcar</button>
+      </div>
+      <label class="chk"><input type="checkbox" id="showCalib" checked> Vara</label>
+      <label class="chk"><input type="checkbox" id="showAxes" checked> Ejes</label>
+      <label class="chk"><input type="checkbox" id="showTrails" checked> Trayectorias</label>
+      <span class="spacer"></span>
+      <span class="readout" id="cursorReadout"></span>
+      <button class="btn small" id="btnFit" title="Ajustar a la ventana (F)">Ajustar</button>
+    </div>
+
+    <div class="stage" id="stage">
+      <canvas id="view"></canvas>
+      <div class="drop" id="dropHint">
+        <div>
+          <p class="big">Arrastra aquí un vídeo</p>
+          <p>o pulsa <b>Abrir vídeo</b>. Mejor MP4 (H.264) o WebM.</p>
+          <p class="muted">El vídeo no sale de tu ordenador: se analiza en el navegador.</p>
+        </div>
+      </div>
+      <div class="busy" id="busy" hidden></div>
+    </div>
+
+    <div class="transport">
+      <button class="btn icon" id="btnStart" title="Inicio del rango (Inicio)">⏮</button>
+      <button class="btn icon" id="btnPrev" title="Anterior (←)">◀</button>
+      <button class="btn icon" id="btnPlay" title="Reproducir (Espacio)">▶</button>
+      <button class="btn icon" id="btnNext" title="Siguiente (→)">▶▏</button>
+      <button class="btn icon" id="btnEnd" title="Final del rango (Fin)">⏭</button>
+      <input type="range" id="slider" min="0" max="0" value="0" step="1">
+      <span class="readout" id="frameReadout">–</span>
+    </div>
+    <video id="video" playsinline muted preload="auto"></video>
+  </section>
+
+  <aside class="side">
+    <details class="panel" open>
+      <summary>Vídeo y tiempo</summary>
+      <div class="grid2">
+        <label>fps del archivo<input type="number" id="fps" min="1" max="1000" step="0.001"></label>
+        <label title="Si el vídeo es a cámara lenta, pon aquí los fps a los que se grabó">fps reales<input type="number" id="fpsReal" min="0.001" step="0.001"></label>
+        <label>Fotograma inicial<input type="number" id="rangeStart" min="0" step="1"></label>
+        <label>Fotograma final<input type="number" id="rangeEnd" min="0" step="1"></label>
+        <label>Paso<input type="number" id="rangeStep" min="1" step="1" value="1"></label>
+        <label>Δt por paso<output id="dtOut">–</output></label>
+      </div>
+      <p class="hint">El tiempo <code>t = 0</code> es el fotograma inicial. Los fps se detectan solos; si no cuadran, corrígelos.</p>
+    </details>
+
+    <details class="panel" open>
+      <summary>Calibración y ejes</summary>
+      <div class="grid2">
+        <label>Longitud de la vara<input type="number" id="calibLen" min="0" step="any" value="1"></label>
+        <label>Unidad<input type="text" id="calibUnit" value="m" maxlength="6"></label>
+        <label>Ángulo de los ejes (°)<input type="number" id="axesAngle" step="0.1" value="0"></label>
+        <label>Escala<output id="scaleOut">–</output></label>
+      </div>
+      <label class="chk"><input type="checkbox" id="calibOn" checked> Usar calibración (si no, todo en píxeles)</label>
+      <p class="hint">Arrastra los extremos de la vara azul sobre algo de longitud conocida. Arrastra el origen de los ejes y su asa para girarlos.</p>
+    </details>
+
+    <details class="panel" open>
+      <summary>Objetos</summary>
+      <div id="trackList" class="tracklist"></div>
+      <button class="btn small" id="btnAddTrack">+ Nuevo objeto</button>
+      <div class="sub">
+        <div class="subhead">Autotracking</div>
+        <div class="grid2">
+          <label title="Lado del recuadro que se busca (px)">Plantilla (px)<input type="number" id="tplSize" min="5" max="101" step="2" value="21"></label>
+          <label title="Cuánto se puede mover el objeto entre pasos (px)">Radio de búsqueda<input type="number" id="searchR" min="3" max="300" step="1" value="30"></label>
+          <label title="Correlación mínima (0 a 1). Por debajo se detiene">Umbral<input type="number" id="matchMin" min="0" max="1" step="0.05" value="0.7"></label>
+          <label class="chk inline" title="La plantilla se va actualizando: ayuda si el objeto cambia de aspecto, pero puede derivar"><input type="checkbox" id="tplEvolve"> Plantilla evolutiva</label>
+        </div>
+        <button class="btn primary small" id="btnAuto" disabled>Autotrack desde aquí</button>
+        <p class="hint">Marca el objeto en un fotograma y pulsa el botón: lo busca en los siguientes.</p>
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>Gráfica</summary>
+      <div class="plotctl">
+        <select id="plotY" aria-label="Eje vertical"></select>
+        <span class="muted">frente a</span>
+        <select id="plotX" aria-label="Eje horizontal"></select>
+        <select id="fitType" aria-label="Ajuste">
+          <option value="0">Sin ajuste</option>
+          <option value="1">Lineal</option>
+          <option value="2">Parabólico</option>
+          <option value="3">Cúbico</option>
+        </select>
+      </div>
+      <div class="plotwrap" id="plotWrap">
+        <canvas id="plot"></canvas>
+        <div class="tip" id="plotTip" hidden></div>
+      </div>
+      <div class="fitout" id="fitOut"></div>
+    </details>
+
+    <details class="panel" open>
+      <summary>Tabla</summary>
+      <div class="tablewrap"><table id="dataTable"></table></div>
+    </details>
+  </aside>
+</main>
+
+<dialog id="help">
+  <h2>Cómo se usa</h2>
+  <ol>
+    <li><b>Abre un vídeo</b> (o arrástralo). Comprueba los fps y, si es cámara lenta, pon los fps reales.</li>
+    <li><b>Calibra</b>: coloca la vara azul sobre algo de longitud conocida y escribe esa longitud.</li>
+    <li><b>Coloca los ejes</b>: arrastra el origen y gíralos con el asa.</li>
+    <li><b>Marca</b>: elige un objeto, activa <i>Marcar</i> y haz clic sobre él; avanza solo al siguiente paso. O márcalo una vez y usa <i>Autotrack</i>.</li>
+    <li>Mira la gráfica y la tabla, ajusta curvas y <b>exporta a CSV</b>.</li>
+  </ol>
+  <h3>Atajos</h3>
+  <table class="keys">
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Paso anterior / siguiente (con <kbd>Mayús</kbd>, de 10 en 10)</td></tr>
+    <tr><td><kbd>Inicio</kbd> <kbd>Fin</kbd></td><td>Principio / final del rango</td></tr>
+    <tr><td><kbd>Espacio</kbd></td><td>Reproducir / pausar</td></tr>
+    <tr><td><kbd>M</kbd> <kbd>V</kbd></td><td>Herramienta Marcar / Mover</td></tr>
+    <tr><td><kbd>Mayús</kbd>+clic</td><td>Marcar punto en cualquier herramienta</td></tr>
+    <tr><td><kbd>Supr</kbd></td><td>Borrar el punto de este fotograma</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></td><td>Deshacer / rehacer</td></tr>
+    <tr><td>Rueda</td><td>Zoom; arrastrar con botón derecho o central (o en vacío con Mover) para desplazar</td></tr>
+    <tr><td><kbd>F</kbd></td><td>Ajustar el vídeo a la ventana</td></tr>
+  </table>
+  <h3>Cálculo</h3>
+  <p>Las velocidades y aceleraciones se calculan con diferencias centradas entre puntos vecinos, así que el primer y el último punto no tienen velocidad ni aceleración. El análisis se guarda solo en este navegador; usa <i>Guardar proyecto</i> para llevártelo.</p>
+  <form method="dialog"><button class="btn primary">Entendido</button></form>
+</dialog>
+
+<div class="toast" id="toast" hidden></div>
+<script src="app.js"></script>
+</body>
+</html>
