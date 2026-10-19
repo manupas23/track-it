@@ -47,6 +47,46 @@ function toast(msg, ms = 3200) {
   toast.h = setTimeout(() => { t.hidden = true; }, ms);
 }
 
+// Diálogo de confirmación con el estilo de la app. Devuelve el `value` del botón pulsado,
+// o null si se cierra con Esc o haciendo clic fuera.
+function ask({ title, text = '', detail = '', buttons }) {
+  const dlg = $('ask');
+  $('askTitle').textContent = title;
+  $('askText').textContent = text;
+  $('askDetail').textContent = detail;
+  const box = $('askActions');
+  box.innerHTML = '';
+  return new Promise((resolve) => {
+    const finish = (v) => {
+      dlg.removeEventListener('close', onClose);
+      dlg.removeEventListener('click', onBackdrop);
+      if (dlg.open) dlg.close();
+      resolve(v);
+    };
+    const onClose = () => finish(null);
+    // Clic fuera del recuadro (en el fondo oscuro) = cancelar.
+    const onBackdrop = (e) => {
+      if (e.target !== dlg) return;
+      const r = dlg.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) finish(null);
+    };
+    let focus = null;
+    for (const b of buttons) {
+      const el = document.createElement('button');
+      el.type = 'button';
+      el.className = 'btn' + (b.kind ? ' ' + b.kind : '');
+      el.textContent = b.label;
+      el.addEventListener('click', () => finish(b.value));
+      box.appendChild(el);
+      if (b.focus) focus = el;
+    }
+    dlg.addEventListener('close', onClose);
+    dlg.addEventListener('click', onBackdrop);
+    dlg.showModal();
+    (focus || box.lastChild).focus();
+  });
+}
+
 function busy(msg) {
   const b = $('busy');
   b.hidden = !msg;
@@ -126,15 +166,14 @@ video.addEventListener('loadedmetadata', async () => {
   if (pendingProject) {
     const d = pendingProject;
     pendingProject = null;
-    if (!(d.video && d.video.name && d.video.name !== S.file.name) ||
-        confirm(`El proyecto es del vídeo "${d.video.name}" y has abierto "${S.file.name}". ¿Cargarlo igualmente?`)) {
+    if (!(d.video && d.video.name && d.video.name !== S.file.name) || await askOtherVideo(d.video.name)) {
       applySnapshot(d);
       hist.reset();
       autosave(snapshot());
       resumeAtLast();
       toast('Proyecto cargado: puedes seguir donde lo dejaste.');
     }
-  } else restoreAutosave();
+  } else await restoreAutosave();
   syncAll();
 });
 
@@ -1166,9 +1205,14 @@ function syncTracks() {
     col.addEventListener('input', () => { tr.color = col.value; render(); drawPlot(); });
     col.addEventListener('change', () => hist.commit());
     name.addEventListener('change', () => { tr.name = name.value.trim() || tr.name; hist.commit(); render(); drawPlot(); });
-    row.querySelector('button').addEventListener('click', () => {
+    row.querySelector('button').addEventListener('click', async () => {
       const n = Object.keys(tr.points).length;
-      if (n && !confirm(`¿Borrar "${tr.name}" y sus ${n} puntos?`)) return;
+      if (n && !(await ask({
+        title: `¿Borrar "${tr.name}"?`,
+        text: `Se borrarán sus ${n} ${n === 1 ? 'punto' : 'puntos'}.`,
+        detail: 'Puedes recuperarlo con Deshacer (Ctrl+Z).',
+        buttons: [{ label: 'Cancelar', value: false, focus: true }, { label: 'Borrar', value: true, kind: 'danger-fill' }],
+      }))) return;
       S.tracks = S.tracks.filter((t) => t !== tr);
       if (S.sel === tr.id) S.sel = S.tracks.length ? S.tracks[0].id : null;
       hist.commit();
@@ -1257,20 +1301,36 @@ function autosave(s) {
   if (!k) return;
   try { localStorage.setItem(k, s); } catch (e) { /* almacenamiento no disponible */ }
 }
-function restoreAutosave() {
+async function restoreAutosave() {
   const k = autosaveKey();
   let s = null;
   try { s = localStorage.getItem(k); } catch (e) { return; }
   if (!s) return;
-  try {
-    const d = JSON.parse(s);
-    const n = (d.tracks || []).reduce((a, t) => a + Object.keys(t.points).length, 0);
-    if (n && confirm(`Hay un análisis guardado de este vídeo (${n} puntos). ¿Recuperarlo?`)) {
-      applySnapshot(d);
-      hist.reset();
-      resumeAtLast();
-    }
-  } catch (e) { /* guardado corrupto: se ignora */ }
+  let d;
+  try { d = JSON.parse(s); } catch (e) { return; /* guardado corrupto: se ignora */ }
+  const tracks = d.tracks || [];
+  const n = tracks.reduce((a, t) => a + Object.keys(t.points || {}).length, 0);
+  if (!n) return;
+  const ok = await ask({
+    title: '¿Seguir donde lo dejaste?',
+    text: `Hay un análisis guardado de este vídeo: ${tracks.length} ${tracks.length === 1 ? 'objeto' : 'objetos'} y ${n} puntos.`,
+    detail: 'Si empiezas de cero, el guardado anterior se sustituirá en cuanto marques algo.',
+    buttons: [{ label: 'Empezar de cero', value: false }, { label: 'Recuperar', value: true, kind: 'primary', focus: true }],
+  });
+  if (ok) {
+    applySnapshot(d);
+    hist.reset();
+    resumeAtLast();
+  }
+}
+
+function askOtherVideo(name) {
+  return ask({
+    title: 'El proyecto es de otro vídeo',
+    text: `Se guardó con "${name}" y tienes abierto "${S.file.name}".`,
+    detail: 'Si es el mismo vídeo con otro nombre, puedes cargarlo sin problema.',
+    buttons: [{ label: 'Cancelar', value: false }, { label: 'Cargar igualmente', value: true, kind: 'primary', focus: true }],
+  });
 }
 
 function download(name, text, type) {
@@ -1291,7 +1351,7 @@ function saveProject() {
 }
 
 function openProject(file) {
-  file.text().then((txt) => {
+  file.text().then(async (txt) => {
     let d;
     try { d = JSON.parse(txt); } catch (e) { toast('El archivo no es un proyecto válido.'); return; }
     if (d.app !== 'track-it') { toast('El archivo no es un proyecto de Track-it.'); return; }
@@ -1301,8 +1361,7 @@ function openProject(file) {
       toast(`Proyecto listo. Ahora abre el vídeo${d.video && d.video.name ? ` "${d.video.name}"` : ''}.`, 6000);
       return;
     }
-    if (d.video && d.video.name && S.file && d.video.name !== S.file.name &&
-        !confirm(`El proyecto es del vídeo "${d.video.name}" y tienes abierto "${S.file.name}". ¿Cargarlo igualmente?`)) return;
+    if (d.video && d.video.name && S.file && d.video.name !== S.file.name && !(await askOtherVideo(d.video.name))) return;
     applySnapshot(d);
     hist.commit();
     syncAll();
@@ -1310,8 +1369,20 @@ function openProject(file) {
   });
 }
 
-function exportCsv() {
-  const excel = confirm('¿Formato para Excel en español (separador ";" y coma decimal)?\nAceptar: sí · Cancelar: CSV estándar (separador "," y punto decimal)');
+async function exportCsv() {
+  if (!S.tracks.some((t) => Object.keys(t.points).length)) { toast('No hay puntos que exportar.'); return; }
+  const fmtChoice = await ask({
+    title: 'Exportar CSV',
+    text: '¿Dónde vas a abrir los datos?',
+    detail: 'Excel en español usa ";" como separador y coma decimal. El estándar (Python, Origin, LibreOffice en inglés…) usa "," y punto decimal.',
+    buttons: [
+      { label: 'Cancelar', value: null },
+      { label: 'CSV estándar', value: 'std' },
+      { label: 'Excel en español', value: 'excel', kind: 'primary', focus: true },
+    ],
+  });
+  if (!fmtChoice) return;
+  const excel = fmtChoice === 'excel';
   const sep = excel ? ';' : ',';
   const num = (v) => {
     if (!isFinite(v)) return '';
@@ -1403,7 +1474,7 @@ fillVarSelect($('plotY'), 'y');
 document.addEventListener('keydown', (e) => {
   const tag = e.target.tagName;
   if ((tag === 'INPUT' && e.target.type !== 'range' && e.target.type !== 'checkbox') || tag === 'SELECT' || tag === 'TEXTAREA') return;
-  if ($('help').open) return;
+  if (document.querySelector('dialog[open]')) return;
   const k = e.key;
   if (S.auto) { if (k === 'Escape') S.auto = false; return; }
   if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); hist.go(e.shiftKey ? 1 : -1); return; }

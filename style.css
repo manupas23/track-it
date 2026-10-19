@@ -168,6 +168,18 @@ dialog li { margin-bottom: 4px; }
 .keys td:first-child { white-space: nowrap; }
 dialog form { text-align: right; margin-top: 12px; }
 
+/* Diálogos de confirmación propios (en lugar de confirm() del navegador). */
+dialog.ask { max-width: 440px; padding: 20px 22px 18px; box-shadow: 0 18px 50px rgba(0,0,0,.45); }
+dialog.ask[open] { animation: ask-in .14s ease-out; }
+@keyframes ask-in { from { opacity: 0; transform: translateY(6px) scale(.98); } }
+dialog.ask h2 { font-size: 16px; margin: 0 0 8px; }
+dialog.ask p { margin: 0 0 6px; color: var(--text-secondary); }
+dialog.ask p.muted { font-size: 12.5px; color: var(--text-muted); }
+dialog.ask p:empty { display: none; }
+.ask-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+.btn.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .toast {
   position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); max-width: calc(100% - 32px);
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-primary);
