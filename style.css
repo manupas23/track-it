@@ -198,6 +198,10 @@ table#dataTable { border-collapse: collapse; width: 100%; font-family: ui-monosp
 #dataTable tr { cursor: pointer; }
 #dataTable tbody tr:hover { background: var(--surface-2); }
 #dataTable tr.cur { background: rgba(57, 135, 229, .18); }
+#dataTable { user-select: none; }
+#dataTable th { cursor: pointer; }
+#dataTable td.sel { background: rgba(57, 135, 229, .32); }
+.tablesel { padding: 4px 2px 0; font-size: 11px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 #dataTable td.empty { text-align: center; color: var(--text-muted); padding: 12px; cursor: default; }
 
 dialog {

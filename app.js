@@ -209,6 +209,7 @@ video.addEventListener('loadedmetadata', async () => {
   S.duration = video.duration;
   grab.width = S.W;
   grab.height = S.H;
+  grabToken = -1;
   busy(t('detecting_fps'));
   const fps = await detectFps();
   setFps(fps, true);
@@ -451,10 +452,21 @@ const varLabel = (k) => { const v = varOf(k); const u = v.u(); return u ? `${v.l
 // Lado mínimo de la plantilla en el nivel más reducido de la pirámide.
 const PYR_MIN = 10;
 
+// Copia del fotograma entero en `grab`, una vez por fotograma. Los recortes se sacan de aquí
+// y no del <video>: con vídeos de móvil girados por metadatos (MOV con rotate 90),
+// drawImage(video, sx, sy, sw, sh, …) recorta en algunos navegadores sobre el fotograma sin
+// girar, y la plantilla salía de otra zona y girada. Pintado entero sí respeta el giro.
+let grabToken = -1;
+function grabFrame() {
+  if (grabToken === frameToken) return;
+  gctx.drawImage(video, 0, 0, S.W, S.H);
+  grabToken = frameToken;
+}
+
 function grayRegion(x0, y0, w, h) {
-  // Solo la región que se busca: convertir el fotograma entero (1080×1920) cuesta más que
-  // convertir dos o tres regiones pequeñas por paso.
-  gctx.drawImage(video, x0, y0, w, h, x0, y0, w, h);
+  // Solo la región que se busca: convertir a gris el fotograma entero (1080×1920) cuesta más
+  // que convertir dos o tres regiones pequeñas por paso.
+  grabFrame();
   const img = gctx.getImageData(x0, y0, w, h).data;
   const g = new Float32Array(w * h);
   for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = 0.299 * img[j] + 0.587 * img[j + 1] + 0.114 * img[j + 2];
@@ -929,7 +941,7 @@ function drawTplPreview() {
   }
   const h = (size - 1) / 2;
   ctx.imageSmoothingEnabled = false;
-  try { ctx.drawImage(video, Math.round(cur.x) - h, Math.round(cur.y) - h, size, size, 0, 0, cv.width, cv.height); } catch (e) { /* sin fotograma */ }
+  try { grabFrame(); ctx.drawImage(grab, Math.round(cur.x) - h, Math.round(cur.y) - h, size, size, 0, 0, cv.width, cv.height); } catch (e) { /* sin fotograma */ }
   const m = cv.width / 2;
   ctx.strokeStyle = tr.color; ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(m - 6, m + 0.5); ctx.lineTo(m + 6, m + 0.5); ctx.moveTo(m + 0.5, m - 6); ctx.lineTo(m + 0.5, m + 6); ctx.stroke();
@@ -1372,6 +1384,13 @@ function drawTable() {
   const head = `<thead><tr>${TABLE_COLS.map((k) => `<th>${k === 'frame' ? t('table_frame') : varLabel(k)}</th>`).join('')}</tr></thead>`;
   tableData = tr ? trackRows(tr) : [];
   tableIndex = new Map(tableData.map((d, i) => [d.frame, i]));
+  // Otro objeto: la selección no tiene sentido. Mismo objeto con más o menos puntos: se recorta.
+  if (tsel && (tselSel !== S.sel || !tableData.length)) tsel = null;
+  else if (tsel) {
+    const last = tableData.length - 1;
+    tsel = { ...tsel, r0: Math.min(tsel.r0, last), r1: Math.min(tsel.r1, last) };
+  }
+  syncSelInfo();
   if (!tableData.length) {
     tableEl.innerHTML = head + `<tbody><tr><td class="empty" colspan="8">${t('table_empty')}</td></tr></tbody>`;
     tableBody = null;
@@ -1400,9 +1419,11 @@ function renderTableWindow() {
   if (first === tableFirst && last === tableLast) return;
   tableFirst = first; tableLast = last;
   let html = first ? `<tr class="spacer" style="height:${first * ROW_H}px"><td colspan="8"></td></tr>` : '';
+  const b = tselBox();
   for (let i = first; i < last; i++) {
     const d = tableData[i];
-    html += `<tr data-f="${d.frame}"${d.frame === S.frame ? ' class="cur"' : ''}>${TABLE_COLS.map((k) => `<td>${k === 'frame' ? d.frame : fmt(d[k])}</td>`).join('')}</tr>`;
+    const rowSel = b && i >= b.r0 && i <= b.r1;
+    html += `<tr data-f="${d.frame}"${d.frame === S.frame ? ' class="cur"' : ''}>${TABLE_COLS.map((k, c) => `<td${rowSel && c >= b.c0 && c <= b.c1 ? ' class="sel"' : ''}>${k === 'frame' ? d.frame : fmt(d[k])}</td>`).join('')}</tr>`;
   }
   if (last < n) html += `<tr class="spacer" style="height:${(n - last) * ROW_H}px"><td colspan="8"></td></tr>`;
   tableBody.innerHTML = html;
@@ -1417,9 +1438,119 @@ tableWrap.addEventListener('scroll', () => {
   }
 }, { passive: true });
 
-tableEl.addEventListener('click', (e) => {
-  const row = e.target.closest('tr[data-f]');
-  if (row) seekFrame(+row.dataset.f);
+// Selección de celdas, como en una hoja de cálculo: clic, Mayús+clic o arrastrar; clic en una
+// cabecera, la columna entera. Se guarda por índices de fila/columna, así que sobrevive al
+// repintado de la ventana virtual. Ctrl+C la copia separada por tabuladores.
+let tsel = null, tselSel = null, tselDrag = null; // tsel = { r0, c0 (ancla), r1, c1 (extremo) }
+const tselBox = () => tsel && {
+  r0: Math.min(tsel.r0, tsel.r1), r1: Math.max(tsel.r0, tsel.r1),
+  c0: Math.min(tsel.c0, tsel.c1), c1: Math.max(tsel.c0, tsel.c1),
+};
+const tableActive = () => tableEl.closest('.panel').classList.contains('active');
+
+function setTableSel(s) {
+  if (s && tsel && s.r0 === tsel.r0 && s.c0 === tsel.c0 && s.r1 === tsel.r1 && s.c1 === tsel.c1) return;
+  tsel = s;
+  tselSel = S.sel;
+  tableFirst = tableLast = -1;
+  renderTableWindow();
+  syncSelInfo();
+}
+
+// Resumen bajo la tabla (como la barra de estado de Excel): celdas, y media y suma si es
+// una sola columna.
+function syncSelInfo() {
+  const el = $('tableSelInfo');
+  const b = tselBox();
+  if (!b || (b.r0 === b.r1 && b.c0 === b.c1)) { el.hidden = true; return; }
+  const rows = b.r1 - b.r0 + 1, cols = b.c1 - b.c0 + 1;
+  let txt = t('sel_cells', { n: rows * cols });
+  if (cols === 1 && TABLE_COLS[b.c0] !== 'frame') {
+    const k = TABLE_COLS[b.c0];
+    let n = 0, sum = 0;
+    for (let i = b.r0; i <= b.r1; i++) { const v = tableData[i][k]; if (isFinite(v)) { n++; sum += v; } }
+    if (n) txt += ` · ${t('sel_mean')} ${fmt(sum / n)} · ${t('sel_sum')} ${fmt(sum)}`;
+  }
+  el.textContent = `${txt} · Ctrl+C`;
+  el.hidden = false;
+}
+
+function cellAt(target) {
+  const td = target && target.closest && target.closest('td, th');
+  if (!td || !tableEl.contains(td)) return null;
+  if (td.tagName === 'TH') return { head: true, c: td.cellIndex };
+  const f = td.parentElement.dataset.f;
+  return f === undefined ? null : { r: tableIndex.get(+f), c: td.cellIndex };
+}
+
+tableEl.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0 || !tableBody) return;
+  const cell = cellAt(e.target);
+  if (!cell) return;
+  e.preventDefault(); // sin selección de texto del navegador
+  const last = tableData.length - 1;
+  if (cell.head) {
+    setTableSel({ r0: 0, c0: e.shiftKey && tsel ? tsel.c0 : cell.c, r1: last, c1: cell.c });
+    tselDrag = 'col';
+  } else {
+    if (e.shiftKey && tsel) setTableSel({ ...tsel, r1: cell.r, c1: cell.c });
+    else {
+      setTableSel({ r0: cell.r, c0: cell.c, r1: cell.r, c1: cell.c });
+      seekFrame(tableData[cell.r].frame);
+    }
+    tselDrag = 'cell';
+  }
+});
+// Arrastre: se sigue por todo el documento para poder salir por arriba o por abajo, y en ese
+// caso la tabla se desplaza sola.
+document.addEventListener('pointermove', (e) => {
+  if (!tselDrag || !tsel) return;
+  if (!e.buttons) { tselDrag = null; return; }
+  if (!tableWrapH) measureTable();
+  const rect = tableWrap.getBoundingClientRect();
+  const x = clamp(e.clientX, rect.left + 1, rect.right - 2);
+  if (tselDrag === 'col') {
+    const cell = cellAt(document.elementFromPoint(x, rect.top + 2));
+    if (cell) setTableSel({ ...tsel, c1: cell.c });
+    return;
+  }
+  if (e.clientY < rect.top + tableHeadH) tableWrap.scrollTop -= ROW_H;
+  else if (e.clientY > rect.bottom) tableWrap.scrollTop += ROW_H;
+  const y = clamp(e.clientY, rect.top + tableHeadH + 1, rect.bottom - 2);
+  const cell = cellAt(document.elementFromPoint(x, y));
+  if (cell && !cell.head) setTableSel({ ...tsel, r1: cell.r, c1: cell.c });
+});
+document.addEventListener('pointerup', () => { tselDrag = null; });
+
+function selectAllTable() {
+  if (tableBody) setTableSel({ r0: 0, c0: 0, r1: tableData.length - 1, c1: TABLE_COLS.length - 1 });
+}
+
+// Texto para pegar en una hoja de cálculo: tabuladores, la coma decimal del sistema y la
+// precisión completa (no la redondeada que se ve). Con columnas enteras va la cabecera.
+function tableSelText() {
+  const b = tselBox();
+  const dec = (1.5).toLocaleString().includes(',') ? ',' : '.';
+  const num = (v) => (isFinite(v) ? String(+v.toPrecision(8)).replace('.', dec) : '');
+  const cols = TABLE_COLS.slice(b.c0, b.c1 + 1);
+  const lines = [];
+  if (b.r0 === 0 && b.r1 === tableData.length - 1) lines.push(cols.map((k) => (k === 'frame' ? t('csv_frame') : varLabel(k))).join('\t'));
+  for (let i = b.r0; i <= b.r1; i++) {
+    const d = tableData[i];
+    lines.push(cols.map((k) => (k === 'frame' ? d.frame : num(d[k]))).join('\t'));
+  }
+  return lines.join('\r\n');
+}
+document.addEventListener('copy', (e) => {
+  if (!tsel || !tableBody || !tableActive()) return;
+  const a = document.activeElement;
+  if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  const s = window.getSelection();
+  if (s && !s.isCollapsed) return; // hay texto seleccionado a mano: copia normal
+  e.clipboardData.setData('text/plain', tableSelText());
+  e.preventDefault();
+  const b = tselBox();
+  toast(t('sel_copied', { n: (b.r1 - b.r0 + 1) * (b.c1 - b.c0 + 1) }));
 });
 
 // Resalta la fila del fotograma actual y desplaza la tabla si se sale de la vista.
@@ -1854,6 +1985,8 @@ document.addEventListener('keydown', (e) => {
   if (S.auto) { if (k === 'Escape') S.auto = false; return; }
   if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'z') { e.preventDefault(); hist.go(e.shiftKey ? 1 : -1); return; }
   if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'y') { e.preventDefault(); hist.go(1); return; }
+  if ((e.ctrlKey || e.metaKey) && k.toLowerCase() === 'a' && tableActive()) { e.preventDefault(); selectAllTable(); return; }
+  if (k === 'Escape' && tsel && !S.auto) { setTableSel(null); return; }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (k === 'ArrowRight') { e.preventDefault(); step(e.shiftKey ? 10 : 1); }
   else if (k === 'ArrowLeft') { e.preventDefault(); step(e.shiftKey ? -10 : -1); }

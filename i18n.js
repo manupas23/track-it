@@ -102,6 +102,7 @@ const I18N = {
     <tr><td><kbd>Mayús</kbd>+clic</td><td>Marcar punto en cualquier herramienta</td></tr>
     <tr><td><kbd>Supr</kbd></td><td>Borrar el punto de este fotograma</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></td><td>Deshacer / rehacer</td></tr>
+    <tr><td>Tabla</td><td>Clic, <kbd>Mayús</kbd>+clic o arrastrar para elegir celdas; clic en la cabecera, la columna. <kbd>Ctrl</kbd>+<kbd>A</kbd> todo, <kbd>Ctrl</kbd>+<kbd>C</kbd> copiar para Excel</td></tr>
     <tr><td>Rueda</td><td>Zoom; arrastrar con botón derecho o central (o en vacío con Mover) para desplazar</td></tr>
     <tr><td><kbd>F</kbd></td><td>Ajustar el vídeo a la ventana</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>Detener el autotracking</td></tr>
@@ -138,6 +139,9 @@ const I18N = {
     tip_frame: 'Fotograma {frame}',
     table_empty: 'Sin puntos',
     table_frame: 'fot.',
+    sel_cells: (v) => `${v.n} ${v.n === 1 ? 'celda' : 'celdas'}`,
+    sel_mean: 'media', sel_sum: 'suma',
+    sel_copied: (v) => `${v.n} ${v.n === 1 ? 'celda copiada' : 'celdas copiadas'}: pégalas en Excel.`,
     readout_frame: 'fot. {frame} / {last}',
     tr_show: 'Mostrar', tr_color: 'Color', tr_name: 'Nombre', tr_count: 'Puntos marcados', tr_delete: 'Borrar objeto',
     del_title: '¿Borrar "{name}"?',
@@ -266,6 +270,7 @@ const I18N = {
     <tr><td><kbd>Shift</kbd>+click</td><td>Mark a point with any tool</td></tr>
     <tr><td><kbd>Del</kbd></td><td>Delete the point on this frame</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Y</kbd></td><td>Undo / redo</td></tr>
+    <tr><td>Table</td><td>Click, <kbd>Shift</kbd>+click or drag to pick cells; click a header for the whole column. <kbd>Ctrl</kbd>+<kbd>A</kbd> all, <kbd>Ctrl</kbd>+<kbd>C</kbd> copy for Excel</td></tr>
     <tr><td>Wheel</td><td>Zoom; drag with the right or middle button (or on empty space with Move) to pan</td></tr>
     <tr><td><kbd>F</kbd></td><td>Fit the video to the window</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>Stop autotracking</td></tr>
@@ -302,6 +307,9 @@ const I18N = {
     tip_frame: 'Frame {frame}',
     table_empty: 'No points',
     table_frame: 'fr.',
+    sel_cells: (v) => `${v.n} ${v.n === 1 ? 'cell' : 'cells'}`,
+    sel_mean: 'mean', sel_sum: 'sum',
+    sel_copied: (v) => `${v.n} ${v.n === 1 ? 'cell' : 'cells'} copied: paste them into Excel.`,
     readout_frame: 'fr. {frame} / {last}',
     tr_show: 'Show', tr_color: 'Colour', tr_name: 'Name', tr_count: 'Marked points', tr_delete: 'Delete object',
     del_title: 'Delete "{name}"?',
