@@ -67,7 +67,39 @@ kbd { border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 
   background: var(--surface-1); border-bottom: 1px solid var(--border);
 }
 .transport { border-bottom: 0; border-top: 1px solid var(--border); }
-.transport input[type=range] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+/* Barra de fotogramas con el tramo de análisis en color y, debajo, los dos mandos (triángulos)
+   que lo delimitan. Todos los mandos miden 14 px de ancho, así que su centro recorre de 7 px a
+   (ancho − 7 px) y la banda del tramo se calcula igual (--a y --b, de 0 a 1). */
+.scrub {
+  flex: 1; min-width: 120px; display: flex; flex-direction: column; --a: 0; --b: 1;
+  --trim-band: linear-gradient(to right, var(--border) calc(7px + var(--a) * (100% - 14px)), var(--band, var(--accent)) 0 calc(7px + var(--b) * (100% - 14px)), var(--border) 0);
+}
+.scrub input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; margin: 0; background: none; }
+.scrub input[type=range]:focus { outline: none; }
+.scrub input[type=range]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#slider { height: 18px; cursor: pointer; }
+#slider::-webkit-slider-runnable-track { height: 6px; border-radius: 3px; background: var(--trim-band); }
+#slider::-moz-range-track { height: 6px; border-radius: 3px; background: var(--trim-band); }
+#slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -4px; border-radius: 50%;
+  background: var(--text-primary); border: 2px solid var(--accent);
+}
+#slider::-moz-range-thumb { width: 14px; height: 14px; box-sizing: border-box; border-radius: 50%; background: var(--text-primary); border: 2px solid var(--accent); }
+.trim { position: relative; height: 11px; }
+.trim input[type=range] { position: absolute; inset: 0; height: 11px; pointer-events: none; }
+.trim input[type=range]::-webkit-slider-runnable-track { height: 11px; background: none; }
+.trim input[type=range]::-moz-range-track { background: none; }
+.trim input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; pointer-events: auto; cursor: ew-resize; width: 14px; height: 11px;
+  background: var(--text-secondary); border: 0; clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.trim input[type=range]::-moz-range-thumb {
+  pointer-events: auto; cursor: ew-resize; width: 14px; height: 11px; border: 0; border-radius: 0;
+  background: var(--text-secondary); clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+.readout.out { color: var(--text-muted); }
+/* Ancho fijo: si cambiara con el texto, la barra se estiraría bajo el ratón al arrastrar. */
+#frameReadout { min-width: 27ch; text-align: right; }
 .spacer { flex: 1; }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
 .seg.lang .seg-btn { padding: 5px 9px; font-size: 12.5px; font-weight: 600; }

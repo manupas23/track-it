@@ -1,4 +1,4 @@
-# TrackIt
+# Track.It
 
 Video analysis for physics in the browser, in the spirit of [Tracker](https://physlets.org/tracker/): calibrate the scale, place a set of axes, track objects frame by frame (by hand or automatically) and get positions, velocities, accelerations, plots with curve fitting and a CSV file.
 
@@ -10,9 +10,12 @@ Open `index.html` (or the published version) in Chrome, Edge or Firefox.
 
 1. **Open a video** or drop it onto the page. MP4 (H.264) or WebM work best; `.avi` files or HEVC-encoded `.mov` files often fail in browsers and need converting first.
 2. **Check the fps.** They are detected automatically. For slow-motion videos, enter the frame rate it was recorded at in *Real fps* (e.g. 240) so that times are correct.
+
+   Time $t = 0$ is set in *t = 0 at frame* and is shared by all objects, so their times can be compared.
 3. **Calibrate.** Drag the ends of the blue stick onto something of known length and type its length and unit.
 4. **Place the axes.** Drag the origin (yellow) and rotate the axes with the handle (hold `Shift` to snap to 15° steps).
 5. **Track the object.**
+   - Each object has its own **range** of frames. The selected object's range is highlighted on the frame bar in its colour; change it by dragging the two triangles under the bar, with the *First / Last frame* fields in the *Objects* panel, or with `I` / `O` at the current frame. Marking and autotracking only work inside it, and only points inside it go into the plot, the table and the CSV (points outside are kept, just left out).
    - Automatically: with the *Auto* tool (`A`), click on the object and it is followed from that frame on. You can also mark it and press *Autotrack from here*, which starts at the last marked point. In each frame it looks for the box that best matches the template (normalised cross-correlation, with sub-pixel precision). If the match drops below the threshold it stops: correct the point by hand and run it again.
    - The template (solid box) and the search area for the next step (dashed box, centred where the object is expected from its velocity) are drawn on the video; drag their corners to resize them. The panel shows an enlarged view of the template.
    - The search is pyramidal (first on a downscaled image, then refined up to full resolution), so large templates and search radii stay fast. Before stopping, it retries in an area three times larger, which keeps it on track through bounces.
@@ -50,7 +53,7 @@ Frame $n$ corresponds to the time
 t_n = \frac{n - n_0}{f_r}
 ```
 
-where $n_0$ is the first frame of the range and $f_r$ is the *real fps* (the recording frame rate, which differs from the file's in slow motion).
+where $n_0$ is the frame set in *t = 0 at frame* (the same for all objects) and $f_r$ is the *real fps* (the recording frame rate, which differs from the file's in slow motion).
 
 ### Velocity and acceleration
 
@@ -111,7 +114,8 @@ which equals $1$ when the curve goes exactly through every point. In a quadratic
 | Key | Action |
 |---|---|
 | `←` `→` | Previous / next step (`Shift`: 10 at a time) |
-| `Home` `End` | Start / end of range |
+| `Home` `End` | Start / end of the selected object's range |
+| `I` `O` | Set the start / end of the selected object's range at the current frame |
 | `Space` | Play / pause |
 | `A` / `M` / `V` | Auto / Mark / Move tool |
 | `Del` | Delete the point on the current frame |

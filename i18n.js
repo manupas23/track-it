@@ -31,20 +31,26 @@ const I18N = {
     drop_big: 'Arrastra aquí un vídeo',
     drop_html: 'o pulsa <b>Abrir vídeo</b>. Mejor MP4 (H.264) o WebM.',
     drop_private: 'El vídeo no sale de tu ordenador: se analiza en el navegador.',
-    t_start: 'Inicio del rango (Inicio)',
+    t_start: 'Principio del tramo del objeto (Inicio)',
     t_prev: 'Anterior (←)',
     t_play: 'Reproducir (Espacio)',
     t_next: 'Siguiente (→)',
-    t_end: 'Final del rango (Fin)',
+    t_end: 'Final del tramo del objeto (Fin)',
+    trim_start_t: 'Principio del tramo del objeto seleccionado (I: fotograma actual)',
+    trim_end_t: 'Final del tramo del objeto seleccionado (O: fotograma actual)',
     p_video: 'Vídeo y tiempo',
     fps_file: 'fps del archivo',
     fps_real: 'fps reales',
     fps_real_t: 'Si el vídeo es a cámara lenta, pon aquí los fps a los que se grabó',
     range_start: 'Fotograma inicial',
     range_end: 'Fotograma final',
+    range_head: 'Tramo del objeto seleccionado',
+    hint_range_html: 'Cada objeto tiene su tramo. El del seleccionado se ve en la barra del vídeo, en su color, y se cambia con los triángulos bajo la barra (o con <kbd>I</kbd> / <kbd>O</kbd> en el fotograma actual). Fuera de él no se marca ni se sigue, y sus puntos no entran en la gráfica, la tabla ni el CSV.',
+    t0: 't = 0 en el fotograma',
+    t0_t: 'Fotograma en el que empieza a contar el tiempo, común a todos los objetos',
     range_step: 'Paso',
     dt_step: 'Δt por paso',
-    hint_time_html: 'El tiempo <code>t = 0</code> es el fotograma inicial. Los fps se detectan solos; si no cuadran, corrígelos.',
+    hint_time_html: 'El tiempo <code>t = 0</code> es el mismo para todos los objetos, aunque cada uno tenga su tramo. Los fps se detectan solos; si no cuadran, corrígelos.',
     p_calib: 'Calibración y ejes',
     calib_len: 'Longitud de la vara',
     calib_unit: 'Unidad',
@@ -89,7 +95,8 @@ const I18N = {
   <h3>Atajos</h3>
   <table class="keys">
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Paso anterior / siguiente (con <kbd>Mayús</kbd>, de 10 en 10)</td></tr>
-    <tr><td><kbd>Inicio</kbd> <kbd>Fin</kbd></td><td>Principio / final del rango</td></tr>
+    <tr><td><kbd>Inicio</kbd> <kbd>Fin</kbd></td><td>Principio / final del tramo del objeto seleccionado</td></tr>
+    <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>Poner el principio / final del tramo del objeto en este fotograma</td></tr>
     <tr><td><kbd>Espacio</kbd></td><td>Reproducir / pausar</td></tr>
     <tr><td><kbd>A</kbd> <kbd>M</kbd> <kbd>V</kbd></td><td>Herramienta Auto / Marcar / Mover</td></tr>
     <tr><td><kbd>Mayús</kbd>+clic</td><td>Marcar punto en cualquier herramienta</td></tr>
@@ -116,6 +123,7 @@ const I18N = {
     track_name: 'Objeto {n}',
     var_frame: 'fotograma',
     auto_need_point: 'Haz clic sobre el objeto con la herramienta Auto (A), o márcalo primero.',
+    out_of_range: 'Este fotograma está fuera del tramo de "{name}". Vuelve dentro o amplía su tramo con los triángulos bajo la barra.',
     tpl_edge: 'El punto está demasiado cerca del borde para esa plantilla.',
     tpl_flat: 'La plantilla es uniforme (sin contraste): elige un punto con más detalle.',
     auto_cancelled: 'Autotrack detenido.',
@@ -147,7 +155,7 @@ const I18N = {
     other_detail: 'Si es el mismo vídeo con otro nombre, puedes cargarlo sin problema.',
     load_anyway: 'Cargar igualmente',
     proj_invalid: 'El archivo no es un proyecto válido.',
-    proj_not_trackit: 'El archivo no es un proyecto de TrackIt.',
+    proj_not_trackit: 'El archivo no es un proyecto de Track.It.',
     proj_ready: 'Proyecto listo. Ahora abre el vídeo{name}.',
     proj_loaded: 'Proyecto cargado.',
     no_points_export: 'No hay puntos que exportar.',
@@ -187,20 +195,26 @@ const I18N = {
     drop_big: 'Drop a video here',
     drop_html: 'or click <b>Open video</b>. MP4 (H.264) or WebM work best.',
     drop_private: 'Your video never leaves your computer: it is analysed in the browser.',
-    t_start: 'Start of range (Home)',
+    t_start: "Start of the object's range (Home)",
     t_prev: 'Previous (←)',
     t_play: 'Play (Space)',
     t_next: 'Next (→)',
-    t_end: 'End of range (End)',
+    t_end: "End of the object's range (End)",
+    trim_start_t: 'Start of the selected object’s range (I: current frame)',
+    trim_end_t: 'End of the selected object’s range (O: current frame)',
     p_video: 'Video and time',
     fps_file: 'File fps',
     fps_real: 'Real fps',
     fps_real_t: 'For slow-motion videos, enter the fps it was recorded at',
     range_start: 'First frame',
     range_end: 'Last frame',
+    range_head: 'Range of the selected object',
+    hint_range_html: 'Each object has its own range. The selected one is shown on the video bar, in its colour, and you change it with the triangles under the bar (or <kbd>I</kbd> / <kbd>O</kbd> at the current frame). Nothing is marked or tracked outside it, and points outside it are left out of the plot, the table and the CSV.',
+    t0: 't = 0 at frame',
+    t0_t: 'Frame where time starts counting, shared by all objects',
     range_step: 'Step',
     dt_step: 'Δt per step',
-    hint_time_html: 'Time <code>t = 0</code> is the first frame. The fps are detected automatically; correct them if they look wrong.',
+    hint_time_html: 'Time <code>t = 0</code> is the same for all objects, even though each one has its own range. The fps are detected automatically; correct them if they look wrong.',
     p_calib: 'Calibration and axes',
     calib_len: 'Stick length',
     calib_unit: 'Unit',
@@ -245,7 +259,8 @@ const I18N = {
   <h3>Shortcuts</h3>
   <table class="keys">
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>Previous / next step (with <kbd>Shift</kbd>, 10 at a time)</td></tr>
-    <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>Start / end of range</td></tr>
+    <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>Start / end of the selected object’s range</td></tr>
+    <tr><td><kbd>I</kbd> <kbd>O</kbd></td><td>Set the start / end of the object’s range at this frame</td></tr>
     <tr><td><kbd>Space</kbd></td><td>Play / pause</td></tr>
     <tr><td><kbd>A</kbd> <kbd>M</kbd> <kbd>V</kbd></td><td>Auto / Mark / Move tool</td></tr>
     <tr><td><kbd>Shift</kbd>+click</td><td>Mark a point with any tool</td></tr>
@@ -272,6 +287,7 @@ const I18N = {
     track_name: 'Object {n}',
     var_frame: 'frame',
     auto_need_point: 'Click on the object with the Auto tool (A), or mark it first.',
+    out_of_range: 'This frame is outside the range of "{name}". Go back inside it or widen its range with the triangles under the bar.',
     tpl_edge: 'The point is too close to the edge for that template size.',
     tpl_flat: 'The template is flat (no contrast): pick a point with more detail.',
     auto_cancelled: 'Autotrack stopped.',
@@ -303,7 +319,7 @@ const I18N = {
     other_detail: 'If it is the same video with a different name, you can load it safely.',
     load_anyway: 'Load anyway',
     proj_invalid: 'The file is not a valid project.',
-    proj_not_trackit: 'The file is not a TrackIt project.',
+    proj_not_trackit: 'The file is not a Track.It project.',
     proj_ready: 'Project ready. Now open the video{name}.',
     proj_loaded: 'Project loaded.',
     no_points_export: 'There are no points to export.',

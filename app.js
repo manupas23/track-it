@@ -1,5 +1,5 @@
 'use strict';
-// TrackIt: videoanálisis en el navegador.
+// Track.It: videoanálisis en el navegador.
 // (Los identificadores internos, como la clave del autoguardado o el campo app de los
 // proyectos, siguen siendo 'track-it' para no perder lo guardado con versiones anteriores.)
 // Coordenadas internas en píxeles de la imagen (y hacia abajo); las del usuario,
@@ -24,7 +24,10 @@ const S = {
   W: 0, H: 0, duration: 0,
   fps: 30, fpsReal: 30, nFrames: 0,
   frame: 0,
-  range: { start: 0, end: 0, step: 1 },
+  // Paso entre fotogramas analizados y fotograma de t = 0, comunes a todos los objetos.
+  // Cada objeto tiene además su propio tramo (tr.range).
+  range: { step: 1 },
+  t0: 0,
   calib: { a: { x: 0, y: 0 }, b: { x: 100, y: 0 }, length: 1, unit: 'm', on: true },
   axes: { ox: 0, oy: 0, angle: 0 },
   tracks: [],
@@ -131,7 +134,12 @@ function toWorld(p) {
   return { x: (dx * c + dy * sn) * s, y: (-dx * sn + dy * c) * s };
 }
 
-const timeOf = (n) => (n - S.range.start) / S.fpsReal;
+const timeOf = (n) => (n - S.t0) / S.fpsReal;
+// Tramo de análisis de un objeto (por defecto, el seleccionado; sin objeto, todo el vídeo).
+// Solo se marca y se sigue dentro de él.
+const fullRange = () => ({ start: 0, end: Math.max(0, S.nFrames - 1) });
+const rangeOf = (tr = selTrack()) => (tr && tr.range) || fullRange();
+const inRange = (n, tr) => { const r = rangeOf(tr); return n >= r.start && n <= r.end; };
 
 /* ---------- vídeo ---------- */
 
@@ -175,11 +183,11 @@ video.addEventListener('error', () => {
   if (recentErrors.length > 3) {
     recovery = null;
     S.loaded = true;
-    console.warn('TrackIt: the video keeps failing', video.error);
+    console.warn('Track.It: the video keeps failing', video.error);
     toast(t('err_repeat', { frame: S.frame, info: errInfo() }), 12000);
     return;
   }
-  console.warn('TrackIt: video error, reloading', video.error);
+  console.warn('Track.It: video error, reloading', video.error);
   recovery = { frame: S.frame };
   S.loaded = false;
   busy(t('err_reloading'));
@@ -205,7 +213,8 @@ video.addEventListener('loadedmetadata', async () => {
   const fps = await detectFps();
   setFps(fps, true);
   S.frame = 0;
-  S.range = { start: 0, end: S.nFrames - 1, step: 1 };
+  S.range = { step: 1 };
+  S.t0 = 0;
   const L = Math.min(S.W, S.H);
   S.calib = { a: { x: S.W / 2 - L / 4, y: S.H * 0.85 }, b: { x: S.W / 2 + L / 4, y: S.H * 0.85 }, length: 1, unit: 'm', on: true };
   S.axes = { ox: S.W * 0.15, oy: S.H * 0.85, angle: 0 };
@@ -274,8 +283,15 @@ function setFps(fps, alsoReal) {
   S.fps = fps;
   if (alsoReal || prevReal === prevFps) S.fpsReal = fps;
   S.nFrames = Math.max(1, Math.floor(S.duration * S.fps + 1e-6));
-  S.range.end = Math.min(S.range.end || S.nFrames - 1, S.nFrames - 1);
-  S.range.start = Math.min(S.range.start, S.range.end);
+  S.t0 = Math.min(S.t0, S.nFrames - 1);
+  S.tracks.forEach(fitRange);
+}
+// Ajusta el tramo de un objeto a la duración del vídeo (o lo crea si no lo tiene).
+function fitRange(tr) {
+  const last = Math.max(0, S.nFrames - 1);
+  const r = tr.range || fullRange();
+  const end = clamp(r.end | 0, 0, last);
+  tr.range = { start: clamp(r.start | 0, 0, end), end };
 }
 
 // Búsqueda serializada: si se piden fotogramas muy rápido, solo se atiende el último.
@@ -321,7 +337,8 @@ function togglePlay() {
     S.playing = false;
     seekFrame(Math.floor(video.currentTime * S.fps));
   } else {
-    if (S.frame >= S.range.end) seekFrame(S.range.start);
+    const r = rangeOf();
+    if (S.frame >= r.end) seekFrame(r.start);
     S.playing = true;
     video.play();
     // Se pinta solo cuando el vídeo presenta un fotograma nuevo (no a 60 Hz fijos).
@@ -330,7 +347,7 @@ function togglePlay() {
     const onFrame = (now, meta) => {
       if (!S.playing) return;
       const f = clamp(meta && meta.mediaTime !== undefined ? Math.round(meta.mediaTime * S.fps) : Math.floor(video.currentTime * S.fps), 0, S.nFrames - 1);
-      if (f >= S.range.end || video.ended) { togglePlay(); return; }
+      if (f >= r.end || video.ended) { togglePlay(); return; }
       if (f !== S.frame) {
         S.frame = f;
         frameToken++;
@@ -349,7 +366,9 @@ video.addEventListener('ended', () => { if (S.playing) togglePlay(); });
 function step(k) {
   if (!S.loaded || S.auto) return;
   if (S.playing) togglePlay();
-  seekFrame(clamp(S.frame + k * S.range.step, 0, S.nFrames - 1));
+  // Dentro del tramo, los pasos no se salen de él.
+  const r = inRange(S.frame) ? rangeOf() : fullRange();
+  seekFrame(clamp(S.frame + k * S.range.step, r.start, r.end));
 }
 
 /* ---------- objetos ---------- */
@@ -358,7 +377,7 @@ function addTrack(select = true) {
   const id = nextTrackId++;
   const used = new Set(S.tracks.map((t) => t.color));
   const color = COLORS.find((c) => !used.has(c)) || COLORS[(id - 1) % COLORS.length];
-  const tr = { id, name: t('track_name', { n: id }), color, visible: true, points: {} };
+  const tr = { id, name: t('track_name', { n: id }), color, visible: true, points: {}, range: fullRange() };
   S.tracks.push(tr);
   if (select || !S.sel) S.sel = id;
   return tr;
@@ -390,7 +409,7 @@ function trackRows(tr) {
 
 // Filas de datos con derivadas por diferencias centradas (admite huecos).
 function computeRows(tr, frames) {
-  const fr = frames.filter((n) => n >= S.range.start && n <= S.range.end);
+  const fr = frames.filter((n) => inRange(n, tr));
   const rows = fr.map((n) => {
     const w = toWorld(tr.points[n]);
     return { frame: n, t: timeOf(n), x: w.x, y: w.y, r: Math.hypot(w.x, w.y) };
@@ -589,11 +608,13 @@ async function autotrack() {
   if (S.auto) { S.auto = false; return; }
   const tr = selTrack();
   if (!tr) return;
+  const r = rangeOf(tr);
+  if (!inRange(S.frame, tr)) { toast(t('out_of_range', { name: tr.name }), 5000); return; }
   // Arranca en el fotograma actual o, si no está marcado, en el último marcado antes de él
   // (después de marcar, la app ya ha avanzado al siguiente paso).
   let start = S.frame;
   if (!tr.points[start]) {
-    const before = sortedFrames(tr).filter((n) => n < S.frame && n >= S.range.start);
+    const before = sortedFrames(tr).filter((n) => n < S.frame && n >= r.start);
     if (!before.length) { toast(t('auto_need_point')); return; }
     start = before[before.length - 1];
   }
@@ -615,7 +636,7 @@ async function autotrack() {
   const k = S.range.step;
   let prev = tr.points[start], prev2 = tr.points[start - k] || null;
   let count = 0, stopMsg = null;
-  for (let n = start + k; n <= S.range.end; n += k) {
+  for (let n = start + k; n <= r.end; n += k) {
     if (!S.auto) { stopMsg = t('auto_cancelled'); break; }
     const pred = prev2 ? { x: 2 * prev.x - prev2.x, y: 2 * prev.y - prev2.y } : prev;
     await seekFrame(n);
@@ -788,7 +809,7 @@ function drawCalib(ctx) {
 }
 
 function drawTrack(ctx, tr) {
-  const frames = sortedFrames(tr);
+  const frames = sortedFrames(tr).filter((n) => inRange(n, tr));
   const isSel = tr.id === S.sel;
   if (S.show.trails && frames.length > 1) {
     const pts = frames.filter((n) => n <= S.frame || isSel).map((n) => toScreen(tr.points[n]));
@@ -963,6 +984,7 @@ view.addEventListener('pointerdown', (e) => {
   if (e.button === 1 || e.button === 2) { drag = { kind: 'pan', sp, v: { ...S.view } }; return; }
   if (e.button !== 0) return;
   if (S.playing) togglePlay();
+  if ((S.tool !== 'move' || e.shiftKey) && selTrack() && !inRange(S.frame)) { toast(t('out_of_range', { name: selTrack().name }), 5000); return; }
   // Herramienta Auto: un clic marca el objeto aquí y lo sigue solo en los fotogramas siguientes.
   if (S.tool === 'auto' && !e.shiftKey) {
     const tr = selTrack() || addTrack();
@@ -982,12 +1004,12 @@ view.addEventListener('pointerdown', (e) => {
     syncData();
     render(false);
     const nx = S.frame + S.range.step;
-    if (nx <= S.range.end) seekFrame(nx);
+    if (nx <= rangeOf(tr).end) seekFrame(nx);
     return;
   }
   const h = hitTest(sp);
   if (h) {
-    if (h.kind === 'pt') { S.sel = h.tr.id; syncTracks(); }
+    if (h.kind === 'pt') { S.sel = h.tr.id; syncTracks(); syncInputs(); syncFrameUI(); }
     drag = { ...h, sp, moved: false };
   } else {
     drag = { kind: 'pan', sp, v: { ...S.view } };
@@ -1428,6 +1450,7 @@ function syncFrameUI() {
   $('slider').max = S.nFrames - 1;
   $('slider').value = S.frame;
   $('frameReadout').textContent = `${t('readout_frame', { frame: S.frame, last: S.nFrames - 1 })}   t = ${fmt(timeOf(S.frame))} s`;
+  $('frameReadout').classList.toggle('out', !inRange(S.frame));
   highlightTableRow();
   drawPlot();
 }
@@ -1441,15 +1464,35 @@ function syncCalibUI() {
 function syncInputs() {
   $('fps').value = S.fps;
   $('fpsReal').value = S.fpsReal;
-  $('rangeStart').value = S.range.start;
-  $('rangeEnd').value = S.range.end;
+  const r = rangeOf();
+  $('t0').value = S.t0;
+  $('rangeStart').value = r.start;
+  $('rangeEnd').value = r.end;
   $('rangeStep').value = S.range.step;
-  $('rangeStart').max = $('rangeEnd').max = S.nFrames - 1;
+  $('t0').max = $('rangeStart').max = $('rangeEnd').max = S.nFrames - 1;
+  $('rangeStart').disabled = $('rangeEnd').disabled = !selTrack();
   $('dtOut').textContent = `${fmt(S.range.step / S.fpsReal)} s`;
+  syncTrim();
   $('calibLen').value = S.calib.length;
   $('calibUnit').value = S.calib.unit;
   $('calibOn').checked = S.calib.on;
   syncCalibUI();
+}
+
+// Mandos bajo la barra y banda del tramo del objeto seleccionado, en su color.
+function syncTrim() {
+  const last = Math.max(0, S.nFrames - 1);
+  const tr = selTrack(), r = rangeOf(tr);
+  const a = $('trimStart'), b = $('trimEnd'), sc = $('scrub');
+  a.max = b.max = last;
+  a.value = r.start;
+  b.value = r.end;
+  a.hidden = b.hidden = !tr;
+  sc.style.setProperty('--a', last ? r.start / last : 0);
+  sc.style.setProperty('--b', last ? r.end / last : 1);
+  sc.style.setProperty('--band', tr ? tr.color : 'var(--accent)');
+  // Con los dos mandos juntos, encima queda el que aún tiene sitio para moverse.
+  a.style.zIndex = r.start > last / 2 ? 2 : '';
 }
 
 function syncTracks() {
@@ -1470,11 +1513,13 @@ function syncTracks() {
       S.sel = tr.id;
       // Sin reconstruir la lista, para no quitar el foco al campo del nombre.
       list.querySelectorAll('.track').forEach((el) => el.classList.toggle('sel', el === row));
+      syncInputs(); // el tramo que se ve es el del objeto seleccionado
+      syncFrameUI();
       syncData();
       render(false);
     });
     vis.addEventListener('change', () => { tr.visible = vis.checked; hist.commit(); render(false); });
-    col.addEventListener('input', () => { tr.color = col.value; touch(); render(false); drawPlot(); });
+    col.addEventListener('input', () => { tr.color = col.value; touch(); render(false); drawPlot(); syncTrim(); });
     col.addEventListener('change', () => hist.commit());
     name.addEventListener('change', () => { tr.name = name.value.trim() || tr.name; hist.commit(); touch(); render(false); drawPlot(); });
     row.querySelector('button').addEventListener('click', async () => {
@@ -1527,7 +1572,7 @@ function syncAll() {
 
 function snapshot() {
   return JSON.stringify({
-    fps: S.fps, fpsReal: S.fpsReal, range: S.range, calib: S.calib, axes: S.axes,
+    fps: S.fps, fpsReal: S.fpsReal, range: S.range, t0: S.t0, calib: S.calib, axes: S.axes,
     tracks: S.tracks, sel: S.sel, nextTrackId,
   });
 }
@@ -1535,10 +1580,15 @@ function applySnapshot(json) {
   const d = typeof json === 'string' ? JSON.parse(json) : json;
   if (d.fps) setFps(d.fps, true);
   if (d.fpsReal) S.fpsReal = d.fpsReal;
-  if (d.range) S.range = { start: clamp(d.range.start | 0, 0, S.nFrames - 1), end: clamp(d.range.end | 0, 0, S.nFrames - 1), step: Math.max(1, d.range.step | 0) };
+  if (d.range) S.range = { step: Math.max(1, d.range.step | 0) };
   if (d.calib) S.calib = d.calib;
   if (d.axes) S.axes = d.axes;
   if (d.tracks) S.tracks = d.tracks;
+  // Los proyectos anteriores tenían un solo tramo para todos los objetos, con t = 0 en su
+  // principio: se reparte a cada objeto y el tiempo no cambia.
+  const old = d.range && d.range.end !== undefined ? { start: d.range.start, end: d.range.end } : null;
+  S.t0 = clamp((d.t0 ?? (old && old.start) ?? 0) | 0, 0, Math.max(0, S.nFrames - 1));
+  S.tracks.forEach((tr) => { if (!tr.range && old) tr.range = { ...old }; fitRange(tr); });
   S.sel = S.tracks.some((t) => t.id === d.sel) ? d.sel : (S.tracks[0] && S.tracks[0].id) || null;
   nextTrackId = d.nextTrackId || Math.max(0, ...S.tracks.map((t) => t.id)) + 1;
 }
@@ -1709,13 +1759,38 @@ $('btnAuto').addEventListener('click', autotrack);
 $('btnPlay').addEventListener('click', togglePlay);
 $('btnPrev').addEventListener('click', () => step(-1));
 $('btnNext').addEventListener('click', () => step(1));
-$('btnStart').addEventListener('click', () => { if (S.loaded) seekFrame(S.range.start); });
-$('btnEnd').addEventListener('click', () => { if (S.loaded) seekFrame(S.range.end); });
+$('btnStart').addEventListener('click', () => { if (S.loaded) seekFrame(rangeOf().start); });
+$('btnEnd').addEventListener('click', () => { if (S.loaded) seekFrame(rangeOf().end); });
 $('slider').addEventListener('input', (e) => {
   if (S.auto) { e.target.value = S.frame; return; }
   if (S.playing) togglePlay();
   seekFrame(+e.target.value);
 });
+// Al arrastrar un mando del tramo se ve el fotograma por el que pasa; se guarda al soltarlo.
+for (const [id, isStart] of [['trimStart', true], ['trimEnd', false]]) {
+  $(id).addEventListener('input', (e) => {
+    const tr = selTrack();
+    if (!S.loaded || S.auto || !tr) { syncTrim(); return; }
+    if (S.playing) togglePlay();
+    const v = +e.target.value, r = tr.range;
+    if (isStart) r.start = Math.min(v, r.end);
+    else r.end = Math.max(v, r.start);
+    touch();
+    syncTrim();
+    seekFrame(isStart ? r.start : r.end);
+  });
+  $(id).addEventListener('change', () => { if (S.loaded && !S.auto) { hist.commit(); syncAll(); } });
+}
+// Fija el principio o el final del tramo del objeto seleccionado en el fotograma actual (I y O).
+function setRangeEdge(isStart) {
+  const tr = selTrack();
+  if (!S.loaded || !tr) return;
+  const r = tr.range;
+  if (isStart) r.start = Math.min(S.frame, r.end);
+  else r.end = Math.max(S.frame, r.start);
+  hist.commit();
+  syncAll();
+}
 // Que Espacio no vuelva a pulsar el último botón usado.
 document.addEventListener('click', (e) => { const b = e.target.closest('button, .seg-btn'); if (b) b.blur(); });
 
@@ -1741,8 +1816,9 @@ function numInput(id, fn) {
 }
 numInput('fps', (v) => { if (v > 0) { setFps(v, false); seekFrame(Math.min(S.frame, S.nFrames - 1)); } });
 numInput('fpsReal', (v) => { if (v > 0) S.fpsReal = v; });
-numInput('rangeStart', (v) => { S.range.start = clamp(Math.round(v), 0, S.range.end); });
-numInput('rangeEnd', (v) => { S.range.end = clamp(Math.round(v), S.range.start, S.nFrames - 1); });
+numInput('t0', (v) => { S.t0 = clamp(Math.round(v), 0, S.nFrames - 1); });
+numInput('rangeStart', (v) => { const r = rangeOf(); if (selTrack()) r.start = clamp(Math.round(v), 0, r.end); });
+numInput('rangeEnd', (v) => { const r = rangeOf(); if (selTrack()) r.end = clamp(Math.round(v), r.start, S.nFrames - 1); });
 numInput('rangeStep', (v) => { S.range.step = Math.max(1, Math.round(v)); });
 numInput('calibLen', (v) => { if (v > 0) S.calib.length = v; });
 numInput('axesAngle', (v) => { S.axes.angle = (v * Math.PI) / 180; });
@@ -1781,13 +1857,15 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (k === 'ArrowRight') { e.preventDefault(); step(e.shiftKey ? 10 : 1); }
   else if (k === 'ArrowLeft') { e.preventDefault(); step(e.shiftKey ? -10 : -1); }
-  else if (k === 'Home') { e.preventDefault(); if (S.loaded) seekFrame(S.range.start); }
-  else if (k === 'End') { e.preventDefault(); if (S.loaded) seekFrame(S.range.end); }
+  else if (k === 'Home') { e.preventDefault(); if (S.loaded) seekFrame(rangeOf().start); }
+  else if (k === 'End') { e.preventDefault(); if (S.loaded) seekFrame(rangeOf().end); }
   else if (k === ' ') { e.preventDefault(); togglePlay(); }
   else if (k === 'm' || k === 'M') setTool('mark');
   else if (k === 'a' || k === 'A') setTool('auto');
   else if (k === 'v' || k === 'V') setTool('move');
   else if (k === 'f' || k === 'F') fitView();
+  else if (k === 'i' || k === 'I') setRangeEdge(true);
+  else if (k === 'o' || k === 'O') setRangeEdge(false);
   else if (k === '?') $('help').showModal();
   else if (k === 'Delete' || k === 'Backspace') {
     const tr = selTrack();
